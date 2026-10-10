@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "create-super-admin": "node --env-file=.env.local scripts/create-super-admin.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "create-demo-admins": "node --env-file=.env.local scripts/create-demo-admins.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

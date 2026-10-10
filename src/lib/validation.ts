@@ -100,7 +100,10 @@ export function validateRecord(
     // System-maintained values are never taken from user input.
     if (field.readOnly) continue;
     if (opts.partial && !(field.name in input)) continue;
-    const { value, error } = parseField(field, input[field.name]);
+    let raw = input[field.name];
+    // New records fall back to the field's default when a value is omitted.
+    if (!opts.partial && isEmpty(raw) && field.default !== undefined) raw = field.default;
+    const { value, error } = parseField(field, raw);
     if (error) errors[field.name] = error;
     else values[field.name] = value;
   }

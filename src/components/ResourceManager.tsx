@@ -98,7 +98,8 @@ export function ResourceManager({ module, resource }: { module: ModuleDef; resou
           action={!filtered && writable && <Button onClick={() => setEditing("new")}><Plus className="size-4" /> Add {resource.singular.toLowerCase()}</Button>}
         />
       ) : (
-        <div className="overflow-x-auto">
+        // `relative` keeps the absolutely-positioned sr-only header inside the scroll area.
+        <div className="relative overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-100 text-sm">
             <thead className="bg-slate-50/60">
               <tr>

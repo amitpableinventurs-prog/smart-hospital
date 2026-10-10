@@ -10,6 +10,9 @@ import { moduleCounts } from "@/lib/records";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
+// Session-checked, per-user data: allowed to block (see (app)/layout.tsx).
+export const instant = false;
+
 export default async function DashboardPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");

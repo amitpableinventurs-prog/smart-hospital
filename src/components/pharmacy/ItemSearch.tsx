@@ -65,7 +65,7 @@ export function ItemSearch({ mode, onPick, inputRef, placeholder }: { mode: "sal
   const options = useMemo<Option[]>(() => {
     const items = results?.items ?? [];
     if (mode === "purchase") return items.map((item) => ({ item, disabled: false, key: item.id }));
-    return items.flatMap((item) =>
+    return items.flatMap((item): Option[] =>
       item.batches.length === 0
         ? [{ item, disabled: true, key: item.id }]
         : item.batches.map((batch) => ({ item, batch, disabled: batch.expired, key: batch.id }))
@@ -106,7 +106,7 @@ export function ItemSearch({ mode, onPick, inputRef, placeholder }: { mode: "sal
           setOpen(true);
           setActive(0);
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => q && setOpen(true)}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); move(1); }
           else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }

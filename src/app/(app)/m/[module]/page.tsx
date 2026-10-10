@@ -5,6 +5,9 @@ import { getModule, moduleHref } from "@/lib/modules";
 import { canAccess, getSessionUser } from "@/lib/session";
 import { ModulePanel } from "./ModulePanel";
 
+// Session-checked, per-user data: allowed to block (see (app)/layout.tsx).
+export const instant = false;
+
 export async function generateMetadata({ params }: PageProps<"/m/[module]">): Promise<Metadata> {
   return { title: getModule((await params).module)?.label ?? "Module" };
 }
