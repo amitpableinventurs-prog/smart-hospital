@@ -1,0 +1,26 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { SESSION_COOKIE, verifySession } from "@/lib/auth";
+
+/**
+ * Coarse gate for pages: no valid session cookie -> /login.
+ * Role and module checks happen in layouts/pages and in every API route,
+ * which also re-check the account against the database.
+ */
+export async function proxy(request: NextRequest) {
+  const { pathname, search } = request.nextUrl;
+  const session = await verifySession(request.cookies.get(SESSION_COOKIE)?.value);
+
+  if (pathname === "/login") {
+    return session ? NextResponse.redirect(new URL("/", request.url)) : NextResponse.next();
+  }
+  if (!session) {
+    const url = new URL("/login", request.url);
+    if (pathname !== "/") url.searchParams.set("next", pathname + search);
+    return NextResponse.redirect(url);
+  }
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
+};

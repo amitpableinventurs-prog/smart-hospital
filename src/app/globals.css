@@ -1,26 +1,36 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /* Brand: calm clinical teal-blue */
+  --color-brand-50: #eef7fb;
+  --color-brand-100: #d5ecf5;
+  --color-brand-200: #acd9eb;
+  --color-brand-500: #1f8fb8;
+  --color-brand-600: #16759a;
+  --color-brand-700: #145f7d;
+  --color-brand-800: #144e66;
+  --color-brand-900: #0f3a4d;
+
+  /* Chart series — reference categorical slots 1–3 (validated all-pairs) */
+  --color-series-1: #2a78d6;
+  --color-series-2: #eb6834;
+  --color-series-3: #1baf7a;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #f5f7f9;
+  color: #0f172a;
+}
+
+/* Thin, unobtrusive scrollbars for the sidebar and tables */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
 }
