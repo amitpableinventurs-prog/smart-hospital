@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Crown, Hospital, KeyRound, LayoutDashboard, LogOut, Menu, UserCog, X } from "lucide-react";
+import { Activity, CreditCard, Crown, Hospital, KeyRound, LayoutDashboard, LogOut, Menu, UserCog, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -42,6 +42,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
         { href: "/super-admin", label: "Monitoring", icon: <LayoutDashboard className="size-4" />, exact: true },
         { href: "/super-admin/admins", label: "Admins & Access", icon: <UserCog className="size-4" /> },
         { href: "/super-admin/activity", label: "Activity Log", icon: <Activity className="size-4" /> },
+        { href: "/super-admin/payments", label: "Payment Gateway", icon: <CreditCard className="size-4" /> },
       ]
     : [{ href: "/dashboard", label: "Dashboard", icon: <LayoutDashboard className="size-4" />, exact: true }];
 
@@ -82,7 +83,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
       </div>
 
       <div className="border-t border-white/10 p-3">
-        <NavGroup title="" items={[{ href: "/account", label: "Account & Password", icon: <KeyRound className="size-4" /> }]} isActive={isActive} />
+        <NavGroup title="" items={[{ href: "/account", label: isSuper ? "Account & Password" : "Account & Razorpay", icon: <KeyRound className="size-4" /> }]} isActive={isActive} />
         <button onClick={signOut} disabled={signingOut} className="mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-brand-100 hover:bg-white/10 hover:text-white disabled:opacity-60">
           <LogOut className="size-4" /> {signingOut ? "Signing out…" : "Sign out"}
         </button>

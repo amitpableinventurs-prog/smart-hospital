@@ -8,6 +8,7 @@ import { formatDateTime, formatMoney } from "@/lib/format";
 import { PAYMENT_MODES } from "@/lib/modules";
 import { useApiQuery } from "@/lib/useApi";
 import { CancelModal } from "../pharmacy/CancelModal";
+import { PayOnlineButton } from "../payments/Razorpay";
 import { RefSelect, type RefOption } from "../RecordForm";
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, ErrorState, Field, Modal, Spinner, cx, inputClass, statusTone, useToast } from "../ui";
 import { RejectSampleModal } from "./LabSection";
@@ -202,6 +203,7 @@ export function OrderView({ id }: { id: string }) {
               )}
               <div className="flex gap-2">
                 {!cancelled && balance > 0 && <Button className="flex-1" onClick={() => setDialog({ kind: "pay" })}><IndianRupee className="size-4" /> Collect payment</Button>}
+                {!cancelled && <PayOnlineButton kind="lab_order" id={order.id} due={balance} className="flex-1" onPaid={() => api<LabOrder>(base).then(({ data }) => updated(data, "Online payment received and recorded"), () => q.reload())} />}
                 {refundDue > 0 && <Button variant="secondary" className="flex-1 text-red-600" onClick={() => setDialog({ kind: "refund" })}><Undo2 className="size-4" /> Record refund</Button>}
               </div>
             </div>

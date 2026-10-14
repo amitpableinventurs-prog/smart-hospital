@@ -77,6 +77,14 @@ The Patients module has bespoke pages (summary cards, registration form, details
 
 The Super Admin overview (`/super-admin`, auto-refreshes every 30 s) shows admins online, operations per day, failed sign-ins, per-module record counts / allocated admins / recent operations, and a live activity feed. The activity log (`/super-admin/activity`) records sign-ins (including failures and lockouts), every create / update / delete with changed fields, every patient record view, and all admin-management changes — filterable by user, module, action and date.
 
+## Online payments (Razorpay)
+
+- **Hospital account** — the super admin saves the hospital's Razorpay Key ID / Key Secret under **Super Admin → Payment Gateway**, and chooses whether admins without their own keys may collect into it.
+- **Per-admin accounts** — each admin can save their own keys under **Account & Razorpay**; the super admin can also set or remove them on the admin's page while allocating modules. An admin's online collections go to their own account, otherwise to the shared hospital account.
+- Keys are checked with Razorpay before saving. The secret is stored AES-256-GCM encrypted (key from `PAYMENT_KEYS_SECRET`, else `AUTH_SECRET`) and never sent to the browser.
+- **Pay online** appears next to the manual payment button on lab orders, pharmacy bills and completed ambulance trips. The server raises a Razorpay order, verifies the checkout signature, confirms the payment with Razorpay, and records it through the module's normal payment logic (mode UPI / Card / Bank Transfer, reference `Razorpay pay_…`).
+- If the browser closes after paying, or a captured payment cannot be recorded (e.g. the balance was settled in cash meanwhile), the attempt stays listed; **Check** asks Razorpay again. Payments needing attention are flagged on the Payment Gateway page.
+
 ## API
 
 All responses follow `{ success: true, data, pagination? }` or `{ success: false, error: { message, fields? } }`.
@@ -100,6 +108,10 @@ All responses follow `{ success: true, data, pagination? }` or `{ success: false
 | `GET/POST /api/insurance/claims` · `GET /api/insurance/claims/:id` · `POST …/:id/action` | Claims; actions `document`, `submit`, `review`, `query`, `respond`, `approve`, `settle`, `reject`, `cancel`, `note`. |
 | `GET /api/insurance/patient-cover?patient=` · `GET /api/insurance/reports` | A patient's policies, admissions and insurance bills; claim ageing and settlement reports. |
 | `GET /api/ambulance/board` · `GET/POST /api/ambulance/trips` · `GET /api/ambulance/trips/:id` · `POST …/:id/action` · `GET /api/ambulance/reports` | Dispatch board; trips (POST may include `dispatch`); actions `dispatch`, `on-scene`, `transport`, `arrive`, `complete`, `pay`, `update`, `cancel`. |
+| `GET/PUT/DELETE /api/payments/razorpay/account` · `GET/PUT/DELETE /api/admins/:id/razorpay` | Own Razorpay keys (super admin: the hospital account); super admin manages an admin's keys. `PUT { keyId, keySecret?, displayName?, enabled?, shared? }` — blank secret keeps the saved one. |
+| `GET /api/payments/razorpay/config` · `GET /api/payments/razorpay/overview` | Which account the caller collects into; super admin overview of all accounts. |
+| `POST /api/payments/razorpay/orders` · `POST /api/payments/razorpay/verify` | `{ kind: lab_order \| pharmacy_sale \| ambulance_trip, id, amount }` → checkout options; verify `{ txnId, razorpay_order_id, razorpay_payment_id, razorpay_signature }`. |
+| `GET /api/payments/razorpay/transactions?kind=&id=&status=&q=` · `POST …/transactions/:id/sync` | Online payments (admins see their own); sync re-checks an order with Razorpay. |
 | `GET /api/activity` · `GET /api/monitoring` | Super admin only. |
 
 Records that are still referenced elsewhere (e.g. a patient with invoices) cannot be deleted.

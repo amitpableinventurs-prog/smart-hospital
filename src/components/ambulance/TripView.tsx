@@ -8,6 +8,7 @@ import { ApiClientError, api } from "@/lib/client";
 import { formatDateTime, formatMoney } from "@/lib/format";
 import { useApiQuery } from "@/lib/useApi";
 import { FormModal, numOrUndefined, type ModalField, type ModalValues } from "../FormModal";
+import { PayOnlineButton } from "../payments/Razorpay";
 import { RefSelect, type RefOption } from "../RecordForm";
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, ErrorState, Field, Modal, Spinner, cx, inputClass, useToast } from "../ui";
 import { Figure, Info, Timeline } from "../DetailBits";
@@ -186,6 +187,7 @@ export function TripView({ id }: { id: string }) {
       fields: [{ name: "mode", label: "Mode", type: "select", options: COLLECT_MODES, required: true, defaultValue: "Cash" }, { name: "amount", label: "Amount", type: "number", required: true, min: 0, defaultValue: String(balance) }, { name: "reference", label: "Reference", maxLength: 60 }],
       body: (v) => ({ action: "pay", mode: v.mode, amount: numOrUndefined(v.amount), reference: v.reference }),
     })}><IndianRupee className="size-4" /> Collect payment</Button>);
+    actions.push(<PayOnlineButton key="pay-online" kind="ambulance_trip" id={trip.id} due={balance} onPaid={() => api<Trip>(`/api/ambulance/trips/${id}`).then(({ data }) => { setLatest(data); toast("Online payment received and recorded"); }, () => q.reload())} />);
   }
   if (open && !trip.patient) actions.push(<Button key="link" variant="secondary" onClick={() => setLinking(true)}><UserPlus className="size-4" /> Link patient</Button>);
   if (open) {

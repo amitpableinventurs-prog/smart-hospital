@@ -1,12 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
+import { GatewaySettingsCard } from "@/components/payments/GatewaySettings";
 import { Alert, Button, Card, CardHeader, Field, PageHeader, cx, errorRing, inputClass, useToast } from "@/components/ui";
 import { ApiClientError, api } from "@/lib/client";
+import { useApiQuery } from "@/lib/useApi";
 import { PASSWORD_MIN, validatePassword } from "@/lib/validation";
 
 export default function AccountPage() {
   const toast = useToast();
+  const me = useApiQuery<{ role: string }>("/api/auth/me").data;
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -43,8 +47,9 @@ export default function AccountPage() {
 
   return (
     <>
-      <PageHeader title="Account" description="Manage your sign-in password." />
-      <Card className="max-w-lg">
+      <PageHeader title="Account" description="Manage your sign-in password and your Razorpay account for online payments." />
+      <div className="grid items-start gap-6 xl:grid-cols-2">
+      <Card>
         <CardHeader title="Change password" />
         <form onSubmit={submit} noValidate className="space-y-4 p-5">
           {formError && <Alert>{formError}</Alert>}
@@ -62,6 +67,17 @@ export default function AccountPage() {
           </div>
         </form>
       </Card>
+      {me?.role === "admin" && (
+        <GatewaySettingsCard url="/api/payments/razorpay/account" title="Razorpay — my account"
+          description="Online payments you collect (Lab, Pharmacy, Ambulance) go to this Razorpay account. Without it, the hospital account is used if the super admin allows it." />
+      )}
+      {me?.role === "super_admin" && (
+        <Card>
+          <CardHeader title="Razorpay" description="The hospital account and each admin's account are managed on the Payment Gateway page." />
+          <div className="p-5"><Link href="/super-admin/payments"><Button variant="secondary">Open Payment Gateway</Button></Link></div>
+        </Card>
+      )}
+      </div>
     </>
   );
 }

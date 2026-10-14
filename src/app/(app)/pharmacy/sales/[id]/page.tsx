@@ -11,6 +11,7 @@ import { ApiClientError, api } from "@/lib/client";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { PAYMENT_MODES } from "@/lib/modules";
 import { useApiQuery } from "@/lib/useApi";
+import { PayOnlineButton } from "@/components/payments/Razorpay";
 
 interface SaleLine {
   itemName: string;
@@ -91,6 +92,7 @@ export default function SaleBillPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           {!cancelled && balance > 0 && <Button variant="secondary" onClick={() => setDialog("pay")}><IndianRupee className="size-4" /> Receive payment</Button>}
+          {!cancelled && <PayOnlineButton kind="pharmacy_sale" id={sale.id} due={balance} onPaid={() => api<Sale>(`/api/pharmacy/sales/${sale.id}`).then(({ data }) => { setUpdated(data); toast("Online payment received and recorded"); }, () => q.reload())} />}
           {!cancelled && <Button variant="secondary" className="text-red-600" onClick={() => setDialog("cancel")}><Ban className="size-4" /> Cancel bill</Button>}
           <Button variant="secondary" onClick={() => window.print()}><Printer className="size-4" /> Print <Kbd>Ctrl+P</Kbd></Button>
           <Link href="/pharmacy/new"><Button><Plus className="size-4" /> New bill <Kbd>F2</Kbd></Button></Link>

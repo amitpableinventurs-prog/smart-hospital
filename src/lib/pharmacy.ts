@@ -282,12 +282,13 @@ export async function receivePayment(id: string, body: Record<string, unknown>, 
   if (!(amount > 0) || amount > balance) fail({ amount: `Enter an amount between 1 and ${balance}` });
   const mode = String(body.paymentMode ?? sale.paymentMode);
   if (!(PAYMENT_MODES as readonly string[]).includes(mode) || mode === "Credit") fail({ paymentMode: "Select how the payment was received" });
+  const reference = typeof body.reference === "string" ? body.reference.trim().slice(0, 60) : "";
   sale.paidAmount = r2((sale.paidAmount ?? 0) + amount);
   sale.status = paymentStatus(sale.netAmount, sale.paidAmount);
   await sale.save();
   await logActivity({
     req, user, action: "update", module: "pharmacy", resource: "sales", entityId: id, entityLabel: sale.code,
-    summary: `Received ₹${amount} (${mode}) against bill ${sale.code}; balance ₹${r2(sale.netAmount - sale.paidAmount)}`,
+    summary: `Received ₹${amount} (${mode}${reference ? `, ${reference}` : ""}) against bill ${sale.code}; balance ₹${r2(sale.netAmount - sale.paidAmount)}`,
   });
   return sale.toObject();
 }

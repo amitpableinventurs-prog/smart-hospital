@@ -8,6 +8,7 @@ import { moduleName } from "@/components/ActivityFeed";
 import { ActivityLogView } from "@/components/ActivityLogView";
 import { AdminStatus, type AdminRow } from "@/components/AdminStatus";
 import { ModulePicker } from "@/components/ModulePicker";
+import { GatewaySettingsCard } from "@/components/payments/GatewaySettings";
 import { Alert, Button, Card, CardHeader, ConfirmDialog, EmptyState, ErrorState, Field, Modal, Spinner, cx, errorRing, inputClass, useToast } from "@/components/ui";
 import { ApiClientError, api } from "@/lib/client";
 import { ACTION_LABELS, formatDateTime, timeAgo } from "@/lib/format";
@@ -187,6 +188,9 @@ export default function AdminDetailPage() {
           </Card>
         </div>
       </div>
+
+      <GatewaySettingsCard url={`/api/admins/${id}/razorpay`} className="mt-6" title="Razorpay account"
+        description={`Online payments ${admin.name} collects in their modules go to this account. Leave it empty to use the hospital account (if shared). They can also manage it themselves under Account.`} />
 
       <h2 className="mb-3 mt-8 text-lg font-semibold text-slate-900">Activity history</h2>
       <ActivityLogView actor={id} />
