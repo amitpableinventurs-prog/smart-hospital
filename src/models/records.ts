@@ -23,6 +23,11 @@ function fieldSchema(field: FieldDef) {
       if (!target) throw new Error(`Unknown ref "${field.ref}" on field ${field.name}`);
       return { type: Schema.Types.ObjectId, ref: modelName(target.module.key, target.resource.key) };
     }
+    case "multiref": {
+      const target = field.ref ? resolveRef(field.ref) : undefined;
+      if (!target) throw new Error(`Unknown ref "${field.ref}" on field ${field.name}`);
+      return { type: [{ type: Schema.Types.ObjectId, ref: modelName(target.module.key, target.resource.key) }], default: undefined };
+    }
     case "select":
       return { type: String, enum: [...(field.options ?? []), null] };
     default:
@@ -46,7 +51,7 @@ function buildSchema(resource: ResourceDef) {
   if (resource.statusField) schema.index({ [resource.statusField]: 1 });
   if (resource.unique) schema.index(Object.fromEntries(resource.unique.map((f) => [f, 1])), { unique: true });
   for (const field of resource.fields) {
-    if (field.type === "ref") schema.index({ [field.name]: 1, createdAt: -1 });
+    if (field.type === "ref" || field.type === "multiref") schema.index({ [field.name]: 1, createdAt: -1 });
   }
   return schema;
 }

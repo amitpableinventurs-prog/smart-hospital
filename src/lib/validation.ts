@@ -10,6 +10,7 @@ const PHONE_RE = /^\+?[0-9][0-9\s-]{6,17}$/;
 const OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const IMAGE_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
 
 export interface ValidationResult {
   values: RecordValues;
@@ -61,6 +62,27 @@ function parseField(field: FieldDef, raw: unknown): { value?: RecordValues[strin
     case "ref": {
       const s = String(raw).trim();
       if (!OBJECT_ID_RE.test(s)) return { error: `Select a valid ${field.label.toLowerCase()}` };
+      return { value: s };
+    }
+    case "multiref": {
+      const ids = (Array.isArray(raw) ? raw.map(String) : String(raw).split(",")).map((s) => s.trim()).filter(Boolean);
+      if (ids.length === 0) return field.required ? { error: `${field.label} is required` } : { value: null };
+      if (ids.some((id) => !OBJECT_ID_RE.test(id))) return { error: `Select valid ${field.label.toLowerCase()}` };
+      if (ids.length > 100) return { error: `${field.label}: at most 100` };
+      return { value: [...new Set(ids)] };
+    }
+    case "multiselect": {
+      const parts = (Array.isArray(raw) ? raw.map(String) : String(raw).split(",")).map((s) => s.trim()).filter(Boolean);
+      if (parts.length === 0) return field.required ? { error: `${field.label} is required` } : { value: null };
+      const bad = parts.find((p) => !field.options?.includes(p));
+      if (bad) return { error: `${field.label} has an invalid value (${bad})` };
+      // Store in the order the options are declared, without duplicates.
+      return { value: field.options!.filter((o) => parts.includes(o)).join(",") };
+    }
+    case "image": {
+      const s = String(raw).trim();
+      if (!IMAGE_RE.test(s)) return { error: `${field.label} must be a JPEG, PNG or WebP image` };
+      if (s.length > (field.maxLength ?? 300_000)) return { error: `${field.label} is too large` };
       return { value: s };
     }
     case "email": {

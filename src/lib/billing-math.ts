@@ -58,6 +58,65 @@ export function purchaseTotals(lines: ReturnType<typeof purchaseLine>[]) {
   return { taxableTotal, gstTotal, roundOff: r2(netAmount - amount), netAmount };
 }
 
+export interface ChargeLineInput {
+  qty: number;
+  rate: number;
+  discountPct: number;
+  gstRate: number;
+}
+
+/**
+ * Hospital bill: GST (if any) is added on top of each charge, and the
+ * bill-level discount is spread over the charges in proportion to their value
+ * before tax, so the GST summary stays correct.
+ */
+export function hospitalBill(lines: ChargeLineInput[], billDiscount: number) {
+  const pre = lines.map((l) => {
+    const gross = r2(l.qty * l.rate);
+    const lineDiscount = r2((gross * Math.min(100, Math.max(0, l.discountPct))) / 100);
+    return { gross, lineDiscount, net: r2(gross - lineDiscount) };
+  });
+  const base = r2(pre.reduce((s, p) => s + p.net, 0));
+  const wanted = Math.min(Math.max(0, r2(billDiscount || 0)), base);
+  const last = pre.findLastIndex((p) => p.net > 0);
+  let given = 0;
+  const out = pre.map((p, i) => {
+    let share = 0;
+    if (wanted > 0 && p.net > 0) share = Math.min(p.net, i === last ? r2(wanted - given) : r2((wanted * p.net) / base));
+    given = r2(given + share);
+    const taxable = r2(p.net - share);
+    const gst = r2((taxable * lines[i].gstRate) / 100);
+    return { gross: p.gross, discount: r2(p.lineDiscount + share), taxable, gst, amount: r2(taxable + gst) };
+  });
+  const sum = (k: keyof (typeof out)[number]) => r2(out.reduce((s, l) => s + l[k], 0));
+  const total = sum("amount");
+  const netAmount = Math.round(total);
+  return {
+    lines: out,
+    totals: {
+      grossAmount: sum("gross"),
+      lineDiscount: r2(pre.reduce((s, p) => s + p.lineDiscount, 0)),
+      billDiscount: given,
+      discountAmount: sum("discount"),
+      taxableAmount: sum("taxable"),
+      gstAmount: sum("gst"),
+      roundOff: r2(netAmount - total),
+      netAmount,
+    },
+  };
+}
+
+/** How much of the net bill a corporate / insurance payer covers; the rest is the patient's. */
+export function payerSplit(opts: { net: number; payerType: string; coveragePct?: number | null; payerLimit?: number | null; movedToPatient?: number | null }) {
+  const { net, payerType } = opts;
+  let payer = 0;
+  if (payerType === "Corporate") payer = r2((net * Math.min(100, Math.max(0, opts.coveragePct ?? 100))) / 100);
+  else if (payerType === "Insurance") payer = net;
+  if (payerType !== "Self" && typeof opts.payerLimit === "number" && opts.payerLimit >= 0) payer = Math.min(payer, opts.payerLimit);
+  payer = r2(Math.max(0, payer - (opts.movedToPatient ?? 0)));
+  return { payerShare: payer, patientShare: r2(net - payer) };
+}
+
 export function paymentStatus(net: number, paid: number) {
   if (paid >= net) return "Paid" as const;
   if (paid > 0) return "Partially Paid" as const;

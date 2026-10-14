@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Pencil, Plus, Search, Trash2, UserRound } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { ApiClientError, api, qs } from "@/lib/client";
 import { useApiQuery } from "@/lib/useApi";
@@ -172,6 +172,18 @@ function Th({ children }: { children: React.ReactNode }) {
 }
 
 function Cell({ field, value, isStatus }: { field: FieldDef; value: unknown; isStatus: boolean }) {
+  if (field.type === "image") {
+    return (
+      <span className="flex size-9 items-center justify-center overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200">
+        {typeof value === "string" && value ? (
+          // eslint-disable-next-line @next/next/no-img-element -- data URL thumbnail
+          <img src={value} alt="" className="size-full object-cover" />
+        ) : (
+          <UserRound className="size-4 text-slate-400" aria-hidden />
+        )}
+      </span>
+    );
+  }
   const text = formatValue(field, value);
   if ((isStatus || field.name === "priority" || field.name === "patientType") && text !== "—") return <Badge tone={statusTone(text)}>{text}</Badge>;
   return <span className="block max-w-[16rem] truncate" title={text}>{text}</span>;

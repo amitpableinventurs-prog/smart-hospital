@@ -112,10 +112,12 @@ export function Badge({ tone = "slate", children }: { tone?: keyof typeof badgeT
 /** Map common status words to a badge tone. */
 export function statusTone(value: string): keyof typeof badgeTones {
   const v = value.toLowerCase();
-  if (/(completed|paid|approved|settled|active|available|discharged|on duty)/.test(v)) return "green";
-  if (/(cancel|rejected|absent|no-show|resigned|inactive|maintenance|stat)/.test(v)) return "red";
-  if (/(pending|waiting|unpaid|partial|review|requested|urgent|on leave|on trip|transferred)/.test(v)) return "amber";
-  if (/(ipd|admitted|in progress|in consultation|dispatched|sample)/.test(v)) return "violet";
+  // Checked in order: "unpaid" / "inactive" must not fall through to "paid" / "active".
+  if (/(unpaid|partial|refund due)/.test(v)) return "amber";
+  if (/(cancel|rejected|absent|no-show|resigned|inactive|maintenance|^stat$|fail|out of stock|out of order|expired|critical)/.test(v)) return "red";
+  if (/(completed|paid|approved|settled|active|available|discharged|on duty|reported|verified|pass|in stock|working)/.test(v)) return "green";
+  if (/(pending|waiting|review|requested|urgent|on leave|on trip|transferred|warning|low stock|sent out|result entered|abnormal)/.test(v)) return "amber";
+  if (/(ipd|admitted|in progress|in consultation|dispatched|sample|in process|collected|received)/.test(v)) return "violet";
   return "blue";
 }
 

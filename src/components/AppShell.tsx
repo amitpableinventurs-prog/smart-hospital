@@ -2,10 +2,10 @@
 
 import { Activity, Crown, Hospital, KeyRound, LayoutDashboard, LogOut, Menu, UserCog, X } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { api } from "@/lib/client";
-import { MODULE_MAP, moduleHref, type ModuleKey, type Role } from "@/lib/modules";
+import { MODULE_MAP, moduleHref, moduleSections, type ModuleKey, type Role } from "@/lib/modules";
 import { ModuleIcon } from "./ModuleIcon";
 import { ToastProvider, cx } from "./ui";
 
@@ -22,10 +22,13 @@ interface NavItem {
   label: string;
   icon: ReactNode;
   exact?: boolean;
+  /** Module tabs, listed under the item while the module is open. */
+  sections?: { key: string; label: string; group?: string }[];
 }
 
 export function AppShell({ user, children }: { user: ShellUser; children: ReactNode }) {
   const pathname = usePathname();
+  const tabParam = useSearchParams().get("tab");
   const router = useRouter();
   // The mobile drawer belongs to the page it was opened on, so navigating closes it.
   const [drawerPath, setDrawerPath] = useState<string | null>(null);
@@ -46,6 +49,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
     href: moduleHref(k),
     label: MODULE_MAP[k].label,
     icon: <ModuleIcon name={MODULE_MAP[k].icon} className="size-4" />,
+    sections: moduleSections(MODULE_MAP[k]),
   }));
 
   const isActive = (item: NavItem) => (item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(item.href + "/"));
@@ -74,7 +78,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
 
       <div className="flex-1 overflow-y-auto px-3 pb-4">
         <NavGroup title={isSuper ? "Super Admin" : "Overview"} items={primary} isActive={isActive} />
-        <NavGroup title={isSuper ? "All Modules" : "My Modules"} items={modules} isActive={isActive} empty="No modules allocated yet. Ask the super admin for access." />
+        <NavGroup title={isSuper ? "All Modules" : "My Modules"} items={modules} isActive={isActive} tab={tabParam} empty="No modules allocated yet. Ask the super admin for access." />
       </div>
 
       <div className="border-t border-white/10 p-3">
@@ -127,7 +131,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
   );
 }
 
-function NavGroup({ title, items, isActive, empty }: { title: string; items: NavItem[]; isActive: (i: NavItem) => boolean; empty?: string }) {
+function NavGroup({ title, items, isActive, empty, tab }: { title: string; items: NavItem[]; isActive: (i: NavItem) => boolean; empty?: string; tab?: string | null }) {
   return (
     <div className="mt-4 first:mt-0">
       {title && <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-brand-200/70">{title}</p>}
@@ -145,9 +149,46 @@ function NavGroup({ title, items, isActive, empty }: { title: string; items: Nav
               {item.icon}
               {item.label}
             </Link>
+            {isActive(item) && item.sections && item.sections.length > 1 && <SectionNav href={item.href} sections={item.sections} tab={tab} />}
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/** The open module's tabs, grouped under small headings when the module defines groups. */
+function SectionNav({ href, sections, tab }: { href: string; sections: NonNullable<NavItem["sections"]>; tab?: string | null }) {
+  const current = sections.some((s) => s.key === tab) ? tab : sections[0].key;
+  const groups: { name?: string; items: typeof sections }[] = [];
+  for (const s of sections) {
+    const last = groups[groups.length - 1];
+    if (last && last.name === s.group) last.items.push(s);
+    else groups.push({ name: s.group, items: [s] });
+  }
+  return (
+    <div className="mb-2 ml-5 mt-1 border-l border-white/15 pl-2">
+      {groups.map((g, gi) => (
+        <div key={gi} className={gi > 0 ? "mt-2" : undefined}>
+          {g.name && <p className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-brand-200/60">{g.name}</p>}
+          <ul className="space-y-px">
+            {g.items.map((s) => (
+              <li key={s.key}>
+                <Link
+                  href={`${href}?tab=${s.key}`}
+                  aria-current={s.key === current ? "page" : undefined}
+                  className={cx(
+                    "block rounded-md px-2 py-1.5 text-[13px] transition-colors",
+                    s.key === current ? "bg-white/15 font-medium text-white" : "text-brand-100/90 hover:bg-white/10 hover:text-white"
+                  )}
+                >
+                  {s.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
     </div>
   );
 }

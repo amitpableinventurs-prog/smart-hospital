@@ -4,7 +4,7 @@ const dateFmt = new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short
 const dateTimeFmt = new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 const moneyFmt = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 });
 
-const MONEY_FIELDS = /amount|fee|price|cost|salary|paid|discount/i;
+const MONEY_FIELDS = /amount|fee|price|cost|salary|paid|discount|^rate$|limit/i;
 
 /** Calendar dates are stored at UTC midnight, so format them in UTC. */
 export function formatDate(iso: string | null | undefined) {
@@ -60,6 +60,12 @@ export function formatValue(field: FieldDef, value: unknown): string {
       const ref = value as { label?: string; code?: string };
       return ref.code && ref.label && ref.code !== ref.label ? `${ref.label} (${ref.code})` : (ref.label || ref.code || "—");
     }
+    case "multiselect":
+      return String(value).split(",").join(", ");
+    case "multiref":
+      return Array.isArray(value) && value.length ? value.map((r) => (r as { label?: string }).label || "—").join(", ") : "—";
+    case "image":
+      return "Photo";
     default:
       return String(value);
   }
@@ -79,6 +85,8 @@ export function toInputValue(field: FieldDef, value: unknown): string {
     }
     case "ref":
       return typeof value === "object" ? String((value as { id?: string }).id ?? "") : String(value);
+    case "multiref":
+      return Array.isArray(value) ? value.map((r) => (typeof r === "object" ? String((r as { id?: string }).id ?? "") : String(r))).join(",") : "";
     default:
       return String(value);
   }

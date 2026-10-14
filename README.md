@@ -42,7 +42,7 @@ Access changes apply **immediately**: every request re-reads the account from th
 
 ## Modules (one panel each)
 
-Patients · OPD/IPD (visits, admissions) · Doctors (doctors, appointments) · Nursing (duty roster, care notes) · Laboratory (orders, test catalog) · Inventory (item master, batch stock, suppliers) · Billing & Payments (invoices) · Human Resources (staff, leave requests) · Insurance (claims, providers) · Ambulance (trips, vehicles) · **Blood Bank** (requests, issues, bags, donors) · **Pharmacy** (Marg-style sale bills and purchase entries) · **Reports** (day book, sales register, stock, expiry, outstanding).
+Patients · OPD/IPD (visits, admissions) · Doctors (doctors, appointments) · Nursing (duty roster, care notes) · Laboratory (orders, test catalog) · Inventory (item master, batch stock, suppliers) · Billing & Payments (invoices) · **Human Resources** (employees, attendance, leave, payroll) · **Insurance** (policies, pre-auths, claims, settlements) · **Ambulance** (dispatch, trips, fleet, fuel, service) · **Blood Bank** (requests, issues, bags, donors) · **Pharmacy** (Marg-style sale bills and purchase entries) · **Reports** (day book, sales register, stock, expiry, outstanding).
 
 ### How modules work together
 
@@ -50,6 +50,10 @@ Patients · OPD/IPD (visits, admissions) · Doctors (doctors, appointments) · N
 - **Patients / Doctors → everything.** Visits, appointments, lab orders, invoices, claims, ambulance trips, blood requests and pharmacy bills link to patients; the patient page shows them (only from modules the viewer is assigned to).
 - **Blood Bank.** Bag group must match its donor; collecting a bag updates the donor's last-donation date. Issuing a bag checks screening, expiry, component and ABO/Rh compatibility, claims the bag atomically, and moves the request to Partially Issued / Issued. Deleting an issue returns the bag. Expired bags are marked automatically. The panel shows stock by group × component against pending demand. (Compatibility follows standard rules; the cross-match remains a clinical responsibility.)
 - Records still referenced elsewhere cannot be deleted.
+- **Human Resources.** The employee master holds the salary structure (basic, DA, HRA, allowances), statutory numbers and bank details. *Daily Attendance* marks each day against the employee's shift (late arrivals and overtime are recorded); approved leave, holidays and weekly offs fill in automatically. *Leave Applications* count working days only, enforce the Leave Policy (yearly quota, pro-rata for joiners, carry-forward, half days, gender, service period) and cannot be approved while the person is on the nursing duty roster or marked present. *Payroll Runs* build a month from attendance, leave and advances: loss-of-pay days, overtime, PF (12% of basic + DA up to ₹15,000), ESI (0.75% up to ₹21,000 gross), professional tax and advance recovery; finalising locks that month's attendance, leave and holidays and recovers advances (reopening reverses them). Payslips print one per page; the register and a bank-advice file export as CSV.
+- **HR → Nursing & Ambulance.** Nursing duty shifts pick nurses from HR; ambulance drivers and crew are HR staff. Staff on approved leave, not yet joined or already left cannot be rostered or dispatched, and staff with future shifts or an active trip cannot be marked as left.
+- **Insurance.** Patient policies link the insurer and TPA. A cashless *pre-authorisation* goes Draft → Submitted → (Query ↔ Reply) → Approved / Rejected, with enhancements for longer stays. The approved amount becomes the insurer's limit on the admission's IPD bill (an IPD bill opened later starts as an insurance bill automatically). Finalising an insurance bill in Billing raises the *claim* with a document checklist; it cannot be submitted until required documents are in. Recording a settlement posts a payer receipt on the bill: TDS and deductions are written off and disallowed amounts move to the patient's due. Claim reports show ageing by insurer, overdue amounts and deduction rates.
+- **Ambulance.** Calls are logged on the *Dispatch Board* and dispatched to an available vehicle (expired insurance / fitness / permit blocks dispatch; mortuary vans only carry dead-body transfers) with a free driver and crew. Each step (at pickup, patient on board, arrived, completed) is time-stamped for response-time reporting. On arrival an Emergency OPD visit can be opened. Completion charges the trip from the *Tariff* (base fare, extra km, waiting, night surcharge, oxygen / ventilator) to the patient's hospital bill, or collects it on the trip. Fuel and service records keep the odometer and next-service date current; a vehicle in the workshop is off the road.
 
 ### Keyboard shortcuts (Marg-style)
 
@@ -83,13 +87,19 @@ All responses follow `{ success: true, data, pagination? }` or `{ success: false
 | `GET/POST /api/patients?search=&type=OPD&page=1&limit=10` · `GET/PATCH/DELETE /api/patients/:id` | Patient ID auto-generated (`MC-2026-000001`); duplicate registrations rejected. |
 | `GET /api/patients/summary` · `GET /api/patients/:id/related` | Listing summary; linked records from modules the viewer may access. |
 | `GET/POST /api/m/:module/:resource` · `GET/PATCH/DELETE /api/m/:module/:resource/:id` | Generic CRUD for every other module. Supports `search`, `page`, `limit`, `sort`, `order`, and filtering by any select/ref field. |
-| `GET /api/lookup/:module/:resource?q=` | id/label search for reference pickers (patients, doctors, tests, …). |
+| `GET /api/lookup/:module/:resource?q=&f.<field>=A|B` | id/label search for reference pickers (patients, doctors, tests, …); `f.` narrows by a select field, e.g. only nurses. |
 | `GET/POST /api/admins` · `GET/PATCH /api/admins/:id` · `POST /api/admins/:id/password` | Super admin only. |
 | `GET /api/pharmacy/stock?q=` | Items with sellable batches (FEFO) for the billing screen. |
 | `GET/POST /api/pharmacy/sales` · `GET/PATCH /api/pharmacy/sales/:id` · `POST …/:id/cancel` | Sale bills; PATCH records a payment `{ amount, paymentMode }`. |
 | `GET/POST /api/pharmacy/purchases` · `GET /api/pharmacy/purchases/:id` · `POST …/:id/cancel` | Purchase entries (stock in). |
 | `GET /api/reports/{daybook,sales-register,stock,expiry,outstanding}` | Reports module. |
 | `GET /api/blood-bank/stock` | Available bags by group × component vs demand. |
+| `GET/POST /api/hr/attendance` · `GET /api/hr/leave-balances` · `GET /api/hr/reports` | Daily register (`?date=`), saving marks `{ date, entries }`, leave balances by year, HR reports. |
+| `GET/POST /api/hr/payroll` · `GET/DELETE /api/hr/payroll/:id` · `POST …/:id/action` | Prepare / regenerate a month; actions `adjust`, `finalise`, `reopen`, `pay`. |
+| `GET/POST /api/insurance/preauths` · `GET /api/insurance/preauths/:id` · `POST …/:id/action` | Cashless pre-auths; actions `submit`, `query`, `respond`, `approve`, `reject`, `enhance`, `decide-enhancement`, `link-admission`, `sync-bill`, `cancel`. |
+| `GET/POST /api/insurance/claims` · `GET /api/insurance/claims/:id` · `POST …/:id/action` | Claims; actions `document`, `submit`, `review`, `query`, `respond`, `approve`, `settle`, `reject`, `cancel`, `note`. |
+| `GET /api/insurance/patient-cover?patient=` · `GET /api/insurance/reports` | A patient's policies, admissions and insurance bills; claim ageing and settlement reports. |
+| `GET /api/ambulance/board` · `GET/POST /api/ambulance/trips` · `GET /api/ambulance/trips/:id` · `POST …/:id/action` · `GET /api/ambulance/reports` | Dispatch board; trips (POST may include `dispatch`); actions `dispatch`, `on-scene`, `transport`, `arrive`, `complete`, `pay`, `update`, `cancel`. |
 | `GET /api/activity` · `GET /api/monitoring` | Super admin only. |
 
 Records that are still referenced elsewhere (e.g. a patient with invoices) cannot be deleted.
@@ -106,6 +116,9 @@ src/
   lib/pharmacy.ts          sale / purchase service with batch stock movements
   lib/billing-math.ts      GST-inclusive bill arithmetic (shared by UI and API)
   lib/reports.ts           report queries
+  lib/hr.ts                attendance, leave balances, payroll
+  lib/insurance.ts         pre-authorisations, claims, settlements (posts to Billing)
+  lib/ambulance.ts         dispatch, trip lifecycle, trip billing; ambulance-math.ts tariff arithmetic
   lib/session.ts, auth.ts  session + permission checks
   lib/audit.ts             activity logging
   models/                  User, ActivityLog, Counter, per-resource models

@@ -2,6 +2,7 @@ import "server-only";
 import type { Types } from "mongoose";
 import { ApiError, escapeRegex } from "./api";
 import { r2 } from "./billing-math";
+import { LabOrder } from "@/models/laboratory";
 import { Purchase, Sale } from "@/models/pharmacy";
 import { getRecordModel } from "@/models/records";
 
@@ -26,10 +27,11 @@ export async function dayBook(url: URL) {
   const range = { $gte: date, $lte: END(date) };
   const Invoices = getRecordModel("billing", "invoices")!;
 
-  const [sales, purchases, invoices] = await Promise.all([
+  const [sales, purchases, invoices, labOrders] = await Promise.all([
     Sale.find({ billDate: range }).sort({ createdAt: 1 }).select("-items").lean(),
     Purchase.find({ invoiceDate: range }).sort({ createdAt: 1 }).select("-items").lean(),
     Invoices.find({ invoiceDate: range }).sort({ createdAt: 1 }).populate({ path: "patient", select: "fullName code" }).lean<Doc[]>(),
+    LabOrder.find({ orderDate: range }).sort({ createdAt: 1 }).select("code patientName netAmount paidAmount payments status createdAt").lean(),
   ]);
 
   const entries = [
@@ -45,6 +47,13 @@ export async function dayBook(url: URL) {
         at: iso(i.createdAt), type: "Hospital invoice", ref: String(i.code), refId: String(i._id),
         party: (i.patient as Doc | null)?.fullName as string ?? "—", mode: (i.paymentMethod as string) ?? "—",
         amount: cancelled ? 0 : net, received: cancelled ? 0 : Number(i.paidAmount ?? 0), paid: 0, cancelled,
+      };
+    }),
+    ...labOrders.map((o) => {
+      const cancelled = o.status === "Cancelled";
+      return {
+        at: iso(o.createdAt), type: "Lab bill", ref: o.code, refId: String(o._id), party: o.patientName,
+        mode: o.payments.at(-1)?.mode ?? "—", amount: cancelled ? 0 : o.netAmount, received: cancelled ? 0 : o.paidAmount, paid: 0, cancelled,
       };
     }),
     ...purchases.map((p) => ({
@@ -63,6 +72,7 @@ export async function dayBook(url: URL) {
     summary: {
       pharmacySales: r2(live.filter((e) => e.type === "Pharmacy sale").reduce((s, e) => s + e.amount, 0)),
       hospitalInvoices: r2(live.filter((e) => e.type === "Hospital invoice").reduce((s, e) => s + e.amount, 0)),
+      labBills: r2(live.filter((e) => e.type === "Lab bill").reduce((s, e) => s + e.amount, 0)),
       purchases: r2(live.reduce((s, e) => s + e.paid, 0)),
       received: r2(live.reduce((s, e) => s + e.received, 0)),
       cancelled: entries.filter((e) => e.cancelled).length,
@@ -121,9 +131,14 @@ export async function stockReport(url: URL) {
     filter.$or = [{ name: rx }, { sku: rx }, { manufacturer: rx }];
   }
   const category = url.searchParams.get("category");
-  if (category) filter.category = category;
+  if (category && /^[a-f0-9]{24}$/i.test(category)) filter.category = category;
 
-  const items = await getRecordModel("inventory", "items")!.find(filter).sort({ name: 1 }).limit(1000).lean<Doc[]>();
+  const items = await getRecordModel("inventory", "items")!
+    .find(filter)
+    .sort({ name: 1 })
+    .limit(1000)
+    .populate([{ path: "category", select: "name" }, { path: "issueUnit", select: "symbol" }])
+    .lean<Doc[]>();
   const batches = await getRecordModel("inventory", "batches")!
     .find({ item: { $in: items.map((i) => i._id) }, quantity: { $gt: 0 } })
     .lean<Doc[]>();
@@ -135,7 +150,7 @@ export async function stockReport(url: URL) {
     const reorder = Number(it.reorderLevel ?? 0);
     const nearest = own.map((b) => b.expiryDate as Date | undefined).filter((d): d is Date => d instanceof Date).sort((a, b) => a.getTime() - b.getTime())[0];
     return {
-      id: String(it._id), name: it.name as string, sku: (it.sku as string) ?? null, category: it.category as string, unit: (it.unit as string) ?? null,
+      id: String(it._id), name: it.name as string, sku: (it.sku as string) ?? null, category: ((it.category as Doc | null)?.name as string) ?? "", unit: ((it.issueUnit as Doc | null)?.symbol as string) ?? null,
       quantity: qty, reorderLevel: reorder || null, batches: own.length,
       expiredQty: own.filter((b) => b.expiryDate instanceof Date && b.expiryDate < today).reduce((s, b) => s + Number(b.quantity), 0),
       nearestExpiry: iso(nearest),
@@ -197,13 +212,14 @@ export async function expiryReport(url: URL) {
 
 export async function outstanding() {
   const today = todayUtc();
-  const [sales, invoices] = await Promise.all([
+  const [sales, invoices, labOrders] = await Promise.all([
     Sale.find({ status: { $in: ["Unpaid", "Partially Paid"] } }).sort({ billDate: 1 }).select("-items").lean(),
     getRecordModel("billing", "invoices")!
       .find({ status: { $in: ["Unpaid", "Partially Paid"] } })
       .sort({ invoiceDate: 1 })
       .populate({ path: "patient", select: "fullName code mobile" })
       .lean<Doc[]>(),
+    LabOrder.find({ paymentStatus: { $in: ["Unpaid", "Partially Paid"] } }).sort({ orderDate: 1 }).select("code orderDate patientName patientMobile netAmount paidAmount").lean(),
   ]);
   const age = (d: unknown) => (d instanceof Date ? Math.max(0, Math.round((today.getTime() - d.getTime()) / 86400_000)) : 0);
   const rows = [
@@ -219,6 +235,10 @@ export async function outstanding() {
         phone: (p?.mobile as string) ?? null, billed: net, paid: Number(i.paidAmount ?? 0), balance: r2(net - Number(i.paidAmount ?? 0)), ageDays: age(i.invoiceDate),
       };
     }),
+    ...labOrders.map((o) => ({
+      source: "Laboratory", id: String(o._id), ref: o.code, date: iso(o.orderDate), party: o.patientName, phone: o.patientMobile ?? null,
+      billed: o.netAmount, paid: o.paidAmount, balance: r2(o.netAmount - o.paidAmount), ageDays: age(o.orderDate),
+    })),
   ]
     .filter((r) => r.balance > 0)
     .sort((a, b) => b.ageDays - a.ageDays);

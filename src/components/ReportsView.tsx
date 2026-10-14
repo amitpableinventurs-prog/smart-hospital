@@ -26,7 +26,7 @@ export function ReportsView({ initialTab }: { initialTab: ReportKey }) {
   return (
     <>
       <div className="print:hidden">
-        <PageHeader title="Reports" description="Pharmacy, billing and stock reports. Alt+1…5 switches report, Ctrl+P prints." />
+        <PageHeader title="Reports" description="Pharmacy, lab, billing and stock reports. Alt+1…5 switches report, Ctrl+P prints." />
         <div className="mb-4 flex gap-1 overflow-x-auto border-b border-slate-200" role="tablist">
           {REPORT_TABS.map((t, i) => (
             <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => select(t.key)}
@@ -78,7 +78,7 @@ const td = "whitespace-nowrap px-3 py-1.5";
 interface DayBookData {
   date: string;
   entries: { at: string; type: string; ref: string; refId: string; party: string; mode: string; amount: number; received: number; paid: number; cancelled: boolean }[];
-  summary: { pharmacySales: number; hospitalInvoices: number; purchases: number; received: number; cancelled: number; byMode: { mode: string; amount: number }[] };
+  summary: { pharmacySales: number; hospitalInvoices: number; labBills?: number; purchases: number; received: number; cancelled: number; byMode: { mode: string; amount: number }[] };
 }
 
 function DayBook() {
@@ -96,9 +96,10 @@ function DayBook() {
       <State q={q}>
         {(d) => (
           <>
-            <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-5">
               <StatCard label="Pharmacy sales" value={formatMoney(d.summary.pharmacySales)} />
               <StatCard label="Hospital invoices" value={formatMoney(d.summary.hospitalInvoices)} />
+              <StatCard label="Lab bills" value={formatMoney(d.summary.labBills ?? 0)} />
               <StatCard label="Collected" value={formatMoney(d.summary.received)} hint={d.summary.byMode.map((m) => `${m.mode} ${formatMoney(m.amount)}`).join(" · ") || "No collections"} />
               <StatCard label="Purchases" value={formatMoney(d.summary.purchases)} tone="slate" hint={d.summary.cancelled ? `${d.summary.cancelled} cancelled entr${d.summary.cancelled === 1 ? "y" : "ies"}` : undefined} />
             </div>
@@ -114,7 +115,8 @@ function DayBook() {
                           <td className={td}>{e.type}</td>
                           <td className={cx(td, "font-mono text-xs")}>
                             {e.type === "Pharmacy sale" ? <Link className="text-brand-700 hover:underline" href={`/pharmacy/sales/${e.refId}`}>{e.ref}</Link>
-                              : e.type === "Purchase" ? <Link className="text-brand-700 hover:underline" href={`/pharmacy/purchases/${e.refId}`}>{e.ref}</Link> : e.ref}
+                              : e.type === "Purchase" ? <Link className="text-brand-700 hover:underline" href={`/pharmacy/purchases/${e.refId}`}>{e.ref}</Link>
+                              : e.type === "Lab bill" ? <Link className="text-brand-700 hover:underline" href={`/laboratory/orders/${e.refId}`}>{e.ref}</Link> : e.ref}
                           </td>
                           <td className={td}>{e.party}</td>
                           <td className={td}>{e.mode}</td>
@@ -374,7 +376,8 @@ function Outstanding() {
                       {d.rows.map((r) => (
                         <tr key={`${r.source}-${r.id}`}>
                           <td className={td}>{r.source}</td>
-                          <td className={cx(td, "font-mono text-xs")}>{r.source === "Pharmacy" ? <Link className="text-brand-700 hover:underline" href={`/pharmacy/sales/${r.id}`}>{r.ref}</Link> : r.ref}</td>
+                          <td className={cx(td, "font-mono text-xs")}>{r.source === "Pharmacy" ? <Link className="text-brand-700 hover:underline" href={`/pharmacy/sales/${r.id}`}>{r.ref}</Link>
+                            : r.source === "Laboratory" ? <Link className="text-brand-700 hover:underline" href={`/laboratory/orders/${r.id}`}>{r.ref}</Link> : r.ref}</td>
                           <td className={td}>{formatDate(r.date)}</td>
                           <td className={td}>{r.party}{r.phone && <span className="ml-1.5 text-xs text-slate-500">{r.phone}</span>}</td>
                           <td className={cx(td, "text-right")}>{money(r.billed)}</td>

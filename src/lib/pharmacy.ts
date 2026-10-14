@@ -3,10 +3,12 @@ import { Types } from "mongoose";
 import { ApiError, escapeRegex, pagination, parsePaging } from "./api";
 import { logActivity } from "./audit";
 import { paymentStatus, purchaseLine, purchaseTotals, r2, saleLine, saleTotals } from "./billing-math";
+import { ensureStore } from "./inventory";
 import { GST_RATES, PAYMENT_MODES } from "./modules";
 import type { SessionUser } from "./session";
 import { isObjectId } from "./validation";
 import { nextCode } from "@/models/Counter";
+import { Ledger, StockDoc } from "@/models/inventory";
 import { Purchase, Sale } from "@/models/pharmacy";
 import { getRecordModel } from "@/models/records";
 
@@ -77,6 +79,20 @@ async function moveStock(moves: { batch: Types.ObjectId; item: Types.ObjectId; d
   };
 }
 
+/** Pharmacy stock movements also go to the inventory stock ledger. */
+async function ledger(
+  rows: { item: unknown; itemName: string; batch?: unknown; batchNo: string; qty: number; rate?: number }[],
+  ctx: { store: Doc; txn: string; docType: string; docId: unknown; docCode: string; party?: string; byName: string }
+) {
+  if (!rows.length) return;
+  await Ledger.insertMany(
+    rows.map((r) => ({
+      at: new Date(), store: ctx.store._id, storeName: ctx.store.name, item: r.item, itemName: r.itemName, batch: r.batch, batchNo: r.batchNo,
+      qty: r.qty, rate: r.rate ?? 0, value: r2(r.qty * (r.rate ?? 0)), txn: ctx.txn, docType: ctx.docType, docId: ctx.docId, docCode: ctx.docCode, party: ctx.party, byName: ctx.byName,
+    }))
+  );
+}
+
 export function storeInfo() {
   return {
     name: process.env.HOSPITAL_NAME || "MediCare Hospital Pharmacy",
@@ -96,8 +112,9 @@ export async function searchStock(q: string) {
     filter.$or = [{ name: rx }, { sku: rx }, { manufacturer: rx }];
   }
   const items = await Items().find(filter).sort({ name: 1 }).limit(12).lean<Doc[]>();
+  const store = await ensureStore("Pharmacy");
   const batches = await Batches()
-    .find({ item: { $in: items.map((i) => i._id) }, quantity: { $gt: 0 } })
+    .find({ item: { $in: items.map((i) => i._id) }, store: store._id, quantity: { $gt: 0 } })
     .sort({ expiryDate: 1 })
     .lean<Doc[]>();
   const today = todayUtc();
@@ -165,7 +182,8 @@ export async function createSale(body: Record<string, unknown>, user: SessionUse
 
   // Resolve batches; MRP and GST always come from stock, never from the client.
   const batchIds = rawLines.map((l) => (l as Record<string, unknown>).batch).filter(isObjectId);
-  const batches = await Batches().find({ _id: { $in: batchIds } }).lean<Doc[]>();
+  const pharmacyStore = await ensureStore("Pharmacy");
+  const batches = await Batches().find({ _id: { $in: batchIds }, store: pharmacyStore._id }).lean<Doc[]>();
   const items = await Items().find({ _id: { $in: batches.map((b) => b.item) } }).lean<Doc[]>();
   const batchMap = new Map(batches.map((b) => [String(b._id), b]));
   const itemMap = new Map(items.map((i) => [String(i._id), i]));
@@ -214,6 +232,10 @@ export async function createSale(body: Record<string, unknown>, user: SessionUse
       notes: typeof body.notes === "string" ? body.notes.trim().slice(0, 500) : undefined,
       createdBy: user.id, createdByName: user.name,
     });
+    await ledger(
+      okLines.map((l) => ({ item: l.item, itemName: l.itemName, batch: l.batch, batchNo: l.batchNo, qty: -l.qty, rate: Number(batchMap.get(String(l.batch))?.purchaseRate ?? 0) })),
+      { store: pharmacyStore, txn: "Pharmacy sale", docType: "pharmacy_sale", docId: sale._id, docCode: sale.code, party: customerName, byName: user.name }
+    );
     await logActivity({
       req, user, action: "create", module: "pharmacy", resource: "sales", entityId: String(sale._id), entityLabel: sale.code,
       summary: `Created sale bill ${sale.code} for ${customerName} — ₹${totals.netAmount} (${okLines.length} item${okLines.length === 1 ? "" : "s"}, ${paymentMode})`,
@@ -239,6 +261,10 @@ export async function cancelSale(id: string, reason: string, user: SessionUser, 
     await Batches().updateOne({ _id: l.batch }, { $inc: { quantity: l.qty } });
     await Items().updateOne({ _id: l.item }, { $inc: { quantity: l.qty } });
   }
+  await ledger(
+    sale.items.map((l) => ({ item: l.item, itemName: l.itemName, batch: l.batch, batchNo: l.batchNo, qty: l.qty })),
+    { store: await ensureStore("Pharmacy"), txn: "Pharmacy sale (cancelled)", docType: "pharmacy_sale", docId: sale._id, docCode: sale.code, party: sale.customerName, byName: user.name }
+  );
   await logActivity({
     req, user, action: "update", module: "pharmacy", resource: "sales", entityId: id, entityLabel: sale.code,
     summary: `Cancelled sale bill ${sale.code} (₹${sale.netAmount}) — stock returned. Reason: ${reason.trim()}`,
@@ -335,7 +361,8 @@ export async function createPurchase(body: Record<string, unknown>, user: Sessio
   if (rawLines.length > MAX_LINES) errors.items = `An entry can have at most ${MAX_LINES} lines`;
   if (Object.keys(errors).length) fail(errors);
 
-  if (await Purchase.exists({ supplier: supplier!._id, supplierInvoiceNo, status: { $ne: "Cancelled" } })) {
+  const asGrn = await StockDoc.exists({ type: "grn", supplier: supplier!._id, invoiceNo: supplierInvoiceNo, status: { $ne: "Cancelled" } });
+  if (asGrn || (await Purchase.exists({ supplier: supplier!._id, supplierInvoiceNo, status: { $ne: "Cancelled" } }))) {
     throw new ApiError(409, `Invoice ${supplierInvoiceNo} from ${supplier!.name} is already entered.`, { supplierInvoiceNo: "Already entered" });
   }
 
@@ -372,13 +399,14 @@ export async function createPurchase(body: Record<string, unknown>, user: Sessio
   if (Object.keys(errors).length) fail(errors);
   const okLines = lines as NonNullable<(typeof lines)[number]>[];
 
-  // Stock in: upsert each batch (item + batch no.) and raise item stock.
+  // Stock in: upsert each batch (item + batch no.) in the Pharmacy store and raise item stock.
+  const store = await ensureStore("Pharmacy");
   const applied: { batch: Types.ObjectId; item: Types.ObjectId; units: number }[] = [];
   try {
     for (const l of okLines) {
       const units = l.qty + l.freeQty;
       const batch = await Batches().findOneAndUpdate(
-        { item: l.item, batchNo: l.batchNo },
+        { item: l.item, store: store._id, batchNo: l.batchNo },
         {
           $inc: { quantity: units },
           $set: { expiryDate: l.expiryDate, mrp: l.mrp, purchaseRate: l.purchaseRate, gstRate: String(l.gstRate), supplier: supplier!._id, updatedBy: user.id },
@@ -399,6 +427,10 @@ export async function createPurchase(body: Record<string, unknown>, user: Sessio
       notes: typeof body.notes === "string" ? body.notes.trim().slice(0, 500) : undefined,
       createdBy: user.id, createdByName: user.name,
     });
+    await ledger(
+      okLines.map((l, i) => ({ item: l.item, itemName: l.itemName, batch: applied[i].batch, batchNo: l.batchNo, qty: applied[i].units, rate: applied[i].units ? r2(l.taxable / applied[i].units) : 0 })),
+      { store, txn: "Pharmacy purchase", docType: "pharmacy_purchase", docId: purchase._id, docCode: purchase.code, party: String(supplier!.name), byName: user.name }
+    );
     await logActivity({
       req, user, action: "create", module: "pharmacy", resource: "purchases", entityId: String(purchase._id), entityLabel: purchase.code,
       summary: `Purchase ${purchase.code}: ${supplier!.name} invoice ${supplierInvoiceNo} — ₹${totals.netAmount}, ${okLines.length} item${okLines.length === 1 ? "" : "s"} added to stock`,
@@ -424,6 +456,10 @@ export async function cancelPurchase(id: string, reason: string, user: SessionUs
     purchase.items.map((l) => ({ batch: l.batch as Types.ObjectId, item: l.item as Types.ObjectId, delta: -(l.qty + (l.freeQty ?? 0)), label: `${l.itemName} batch ${l.batchNo} (some units already sold)` }))
   );
   await Purchase.updateOne({ _id: id }, { $set: { status: "Cancelled", cancelledAt: new Date(), cancelReason: reason.trim().slice(0, 300) } });
+  await ledger(
+    purchase.items.map((l) => ({ item: l.item, itemName: l.itemName, batch: l.batch, batchNo: l.batchNo, qty: -(l.qty + (l.freeQty ?? 0)) })),
+    { store: await ensureStore("Pharmacy"), txn: "Pharmacy purchase (cancelled)", docType: "pharmacy_purchase", docId: purchase._id, docCode: purchase.code, party: purchase.supplierName ?? undefined, byName: user.name }
+  );
   await logActivity({
     req, user, action: "update", module: "pharmacy", resource: "purchases", entityId: id, entityLabel: purchase.code,
     summary: `Cancelled purchase ${purchase.code} (${purchase.supplierName} ${purchase.supplierInvoiceNo}) — stock reversed. Reason: ${reason.trim()}`,

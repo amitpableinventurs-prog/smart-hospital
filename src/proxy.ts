@@ -10,6 +10,9 @@ export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const session = await verifySession(request.cookies.get(SESSION_COOKIE)?.value);
 
+  // Shared lab reports are opened by patients/doctors without an account; the token is the credential.
+  if (pathname.startsWith("/lab-report/")) return NextResponse.next();
+
   if (pathname === "/login") {
     return session ? NextResponse.redirect(new URL("/", request.url)) : NextResponse.next();
   }

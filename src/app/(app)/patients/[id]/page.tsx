@@ -34,6 +34,12 @@ interface Related {
   sections: { module: ModuleKey; moduleLabel: string; resource: string; label: string; total: number; items: (Record<string, unknown> & { id: string; code?: string })[] }[];
   restricted: string[];
   pharmacy: { total: number; items: { id: string; code: string; billDate: string; netAmount: number; paidAmount: number; status: string; paymentMode: string; summary: string }[] } | null;
+  lab?: { total: number; items: { id: string; code: string; orderDate: string; status: string; paymentStatus: string; netAmount: number; tests: string; reported: number; count: number; critical: boolean; abnormal: boolean }[] } | null;
+  insurance?: {
+    preauths: { total: number; items: { id: string; code: string; createdAt: string; insurerName: string | null; tpaName: string | null; diagnosis: string; requestedAmount: number; approvedAmount: number; authNo: string | null; status: string }[] };
+    claims: { total: number; items: { id: string; code: string; createdAt: string | null; providerName: string | null; billCode: string | null; claimAmount: number; settledAmount: number; outstanding: number; status: string }[] };
+  } | null;
+  ambulance?: { total: number; items: { id: string; code: string; requestedAt: string; tripType: string; pickupLocation: string; dropLocation: string | null; vehicleNumber: string | null; status: string; total: number | null; paymentStatus: string }[] } | null;
 }
 
 export default function PatientDetailsPage() {
@@ -161,7 +167,47 @@ export default function PatientDetailsPage() {
       ) : (
         <div className="space-y-4">
           {related.sections.map((s) => <RelatedSection key={`${s.module}.${s.resource}`} section={s} />)}
+          {related.lab && <LabOrdersSection data={related.lab} patientId={patient.id} />}
           {related.pharmacy && <PharmacySection data={related.pharmacy} patientId={patient.id} />}
+          {related.insurance && (
+            <>
+              <LinkedTable
+                title="Insurance pre-authorisations"
+                description={`Insurance · ${related.insurance.preauths.total} pre-auth${related.insurance.preauths.total === 1 ? "" : "s"}`}
+                action={{ href: `/insurance/preauth/new?patient=${patient.id}`, label: "Request pre-auth" }}
+                empty="No pre-authorisations for this patient."
+                headers={["Pre-auth", "Date", "Insurer / TPA", "Diagnosis", "Requested", "Approved", "Status"]}
+                rows={related.insurance.preauths.items.map((p) => ({
+                  id: p.id, href: `/insurance/preauth/${p.id}`, code: p.code, status: p.status,
+                  cells: [formatDate(p.createdAt), p.tpaName ? `${p.insurerName} / ${p.tpaName}` : (p.insurerName ?? "—"), p.diagnosis, formatMoney(p.requestedAmount), p.approvedAmount ? `${formatMoney(p.approvedAmount)}${p.authNo ? ` · ${p.authNo}` : ""}` : "—"],
+                }))}
+              />
+              <LinkedTable
+                title="Insurance claims"
+                description={`Insurance · ${related.insurance.claims.total} claim${related.insurance.claims.total === 1 ? "" : "s"}`}
+                action={{ href: `/insurance/claims/new?patient=${patient.id}`, label: "New claim" }}
+                empty="No claims for this patient."
+                headers={["Claim", "Date", "Insurer", "Bill", "Claimed", "Settled", "Outstanding", "Status"]}
+                rows={related.insurance.claims.items.map((c) => ({
+                  id: c.id, href: `/insurance/claims/${c.id}`, code: c.code, status: c.status,
+                  cells: [formatDate(c.createdAt), c.providerName ?? "—", c.billCode ?? "—", formatMoney(c.claimAmount), formatMoney(c.settledAmount), formatMoney(c.outstanding)],
+                }))}
+              />
+            </>
+          )}
+          {related.ambulance && (
+            <LinkedTable
+              title="Ambulance trips"
+              description={`Ambulance · ${related.ambulance.total} trip${related.ambulance.total === 1 ? "" : "s"}`}
+              action={{ href: `/ambulance/trips/new?patient=${patient.id}`, label: "Log ambulance call" }}
+              empty="No ambulance trips for this patient."
+              headers={["Trip", "Called", "Type", "From → To", "Vehicle", "Charges", "Status"]}
+              rows={related.ambulance.items.map((t) => ({
+                id: t.id, href: `/ambulance/trips/${t.id}`, code: t.code, status: t.status,
+                cells: [formatDateTime(t.requestedAt), t.tripType, `${t.pickupLocation}${t.dropLocation ? ` → ${t.dropLocation}` : ""}`, t.vehicleNumber ?? "—", t.total != null ? `${formatMoney(t.total)} · ${t.paymentStatus}` : "—"],
+              }))}
+            />
+          )}
           {related.restricted.length > 0 && (
             <div className="flex items-start gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-3 text-sm text-slate-500">
               <Lock className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -208,6 +254,46 @@ function Info({ label, value, wide, mono }: { label: string; value: string; wide
   );
 }
 
+function LabOrdersSection({ data, patientId }: { data: NonNullable<Related["lab"]>; patientId: string }) {
+  return (
+    <Card>
+      <CardHeader
+        title="Lab orders"
+        description={`Laboratory · ${data.total} order${data.total === 1 ? "" : "s"}`}
+        actions={<Link href={`/laboratory/new?patient=${patientId}`} className="text-xs font-medium text-brand-700 hover:underline">Book lab tests</Link>}
+      />
+      {data.items.length === 0 ? (
+        <p className="px-5 py-4 text-sm text-slate-500">No lab orders for this patient.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-100 text-sm">
+            <thead>
+              <tr>
+                {["Lab no.", "Date", "Tests", "Reported", "Status", "Amount", ""].map((h, i) => (
+                  <th key={i} className="whitespace-nowrap px-5 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {data.items.map((o) => (
+                <tr key={o.id}>
+                  <td className="whitespace-nowrap px-5 py-2.5 font-mono text-xs"><Link href={`/laboratory/orders/${o.id}`} className="text-brand-700 hover:underline">{o.code}</Link></td>
+                  <td className="whitespace-nowrap px-5 py-2.5 text-slate-700">{formatDate(o.orderDate)}</td>
+                  <td className="max-w-xs truncate px-5 py-2.5 text-slate-700">{o.tests}{o.critical ? <span className="ml-2 text-xs font-semibold text-red-600">Critical</span> : o.abnormal ? <span className="ml-2 text-xs font-semibold text-amber-700">Abnormal</span> : null}</td>
+                  <td className="whitespace-nowrap px-5 py-2.5 tabular-nums text-slate-700">{o.reported}/{o.count}</td>
+                  <td className="whitespace-nowrap px-5 py-2.5"><Badge tone={statusTone(o.status)}>{o.status}</Badge></td>
+                  <td className="whitespace-nowrap px-5 py-2.5 tabular-nums text-slate-700">{formatMoney(o.netAmount)}</td>
+                  <td className="whitespace-nowrap px-5 py-2.5 text-xs">{o.reported > 0 && <Link href={`/laboratory/orders/${o.id}/report`} className="text-brand-700 hover:underline">Report</Link>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function PharmacySection({ data, patientId }: { data: NonNullable<Related["pharmacy"]>; patientId: string }) {
   return (
     <Card>
@@ -237,6 +323,35 @@ function PharmacySection({ data, patientId }: { data: NonNullable<Related["pharm
                   <td className="whitespace-nowrap px-5 py-2.5 tabular-nums text-slate-700">{formatMoney(b.netAmount)}</td>
                   <td className="whitespace-nowrap px-5 py-2.5 tabular-nums text-slate-700">{formatMoney(b.paidAmount)}</td>
                   <td className="whitespace-nowrap px-5 py-2.5"><Badge tone={statusTone(b.status)}>{b.status}</Badge></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** Linked workflow records (pre-auths, claims, trips): code links to the record, last column is the status. */
+function LinkedTable({ title, description, action, empty, headers, rows }: { title: string; description: string; action: { href: string; label: string }; empty: string; headers: string[]; rows: { id: string; href: string; code: string; status: string; cells: string[] }[] }) {
+  return (
+    <Card>
+      <CardHeader title={title} description={description} actions={<Link href={action.href} className="text-xs font-medium text-brand-700 hover:underline">{action.label}</Link>} />
+      {rows.length === 0 ? (
+        <p className="px-5 py-4 text-sm text-slate-500">{empty}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-100 text-sm">
+            <thead>
+              <tr>{headers.map((h) => <th key={h} className="whitespace-nowrap px-5 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">{h}</th>)}</tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="whitespace-nowrap px-5 py-2.5 font-mono text-xs"><Link href={r.href} className="text-brand-700 hover:underline">{r.code}</Link></td>
+                  {r.cells.map((c, i) => <td key={i} className="max-w-xs truncate whitespace-nowrap px-5 py-2.5 text-slate-700" title={c}>{c}</td>)}
+                  <td className="whitespace-nowrap px-5 py-2.5"><Badge tone={statusTone(r.status)}>{r.status}</Badge></td>
                 </tr>
               ))}
             </tbody>

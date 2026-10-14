@@ -4,10 +4,13 @@ import { ApiError, escapeRegex, pagination, parsePaging, readJson } from "./api"
 import { logActivity } from "./audit";
 import { connectDB } from "./db";
 import { MODULES, getModule, getResource, patientLinkedResources, resolveRef, type ModuleDef, type RecordValues, type ResourceDef } from "./modules";
+import { patientTrips } from "./ambulance";
+import { patientInsurance } from "./insurance";
 import { RULES } from "./rules";
 import { canAccess, requireUser, type SessionUser } from "./session";
 import { isObjectId, validateRecord } from "./validation";
 import { nextCode } from "@/models/Counter";
+import { LabOrder } from "@/models/laboratory";
 import { Sale } from "@/models/pharmacy";
 import { getRecordModel } from "@/models/records";
 
@@ -42,7 +45,7 @@ function assertWritable(resource: ResourceDef) {
 
 function refPopulate(resource: ResourceDef) {
   return resource.fields
-    .filter((f) => f.type === "ref" && f.ref)
+    .filter((f) => (f.type === "ref" || f.type === "multiref") && f.ref)
     .map((f) => {
       const target = resolveRef(f.ref!)!.resource;
       return { path: f.name, select: [target.labelField, "code"].join(" ") };
@@ -61,7 +64,12 @@ export function serialize(resource: ResourceDef, doc: Doc): SerializedRecord {
   if (resource.codePrefix) out.code = doc.code ?? null;
   for (const field of resource.fields) {
     const v = doc[field.name];
-    if (field.type === "ref") {
+    if (field.type === "multiref") {
+      const target = resolveRef(field.ref!)!.resource;
+      out[field.name] = Array.isArray(v)
+        ? v.map((r) => (r && typeof r === "object" && "_id" in r ? { id: String((r as Doc)._id), label: String((r as Doc)[target.labelField] ?? (r as Doc).code ?? ""), code: (r as Doc).code as string | undefined } : { id: String(r), label: "(deleted)" }))
+        : [];
+    } else if (field.type === "ref") {
       if (v && typeof v === "object" && "_id" in (v as object)) {
         const target = resolveRef(field.ref!)!.resource;
         const ref = v as Doc;
@@ -84,10 +92,15 @@ export function serialize(resource: ResourceDef, doc: Doc): SerializedRecord {
 async function checkRefs(resource: ResourceDef, values: RecordValues) {
   const errors: Record<string, string> = {};
   for (const field of resource.fields) {
-    if (field.type !== "ref" || !values[field.name]) continue;
+    const v = values[field.name];
+    if ((field.type !== "ref" && field.type !== "multiref") || !v) continue;
     const target = resolveRef(field.ref!)!;
-    const exists = await model(target.module, target.resource).exists({ _id: values[field.name] });
-    if (!exists) errors[field.name] = `${field.label} not found`;
+    if (Array.isArray(v)) {
+      const found = await model(target.module, target.resource).countDocuments({ _id: { $in: v } });
+      if (found !== v.length) errors[field.name] = `Some ${field.label.toLowerCase()} were not found`;
+    } else if (!(await model(target.module, target.resource).exists({ _id: v }))) {
+      errors[field.name] = `${field.label} not found`;
+    }
   }
   if (Object.keys(errors).length) throw new ApiError(422, "Validation failed", errors);
 }
@@ -105,7 +118,7 @@ function buildFilter(resource: ResourceDef, url: URL) {
     const v = url.searchParams.get(field.name);
     if (!v) continue;
     if (field.type === "select" && field.options?.includes(v)) filter[field.name] = v;
-    else if (field.type === "ref" && isObjectId(v)) filter[field.name] = new Types.ObjectId(v);
+    else if ((field.type === "ref" || field.type === "multiref") && isObjectId(v)) filter[field.name] = new Types.ObjectId(v);
   }
   const from = url.searchParams.get("createdFrom");
   if (from && !Number.isNaN(Date.parse(from))) filter.createdAt = { $gte: new Date(from) };
@@ -121,7 +134,7 @@ export async function listRecords(moduleKey: string, resourceKey: string, req: R
   const { page, limit, skip } = parsePaging(url);
   const filter = buildFilter(resource, url);
   const sortField = url.searchParams.get("sort");
-  const sortable = new Set(["createdAt", "updatedAt", "code", ...resource.fields.filter((f) => f.type !== "ref").map((f) => f.name)]);
+  const sortable = new Set(["createdAt", "updatedAt", "code", ...resource.fields.filter((f) => f.type !== "ref" && f.type !== "multiref" && f.type !== "image").map((f) => f.name)]);
   const sort: Record<string, 1 | -1> = { [sortField && sortable.has(sortField) ? sortField : "createdAt"]: url.searchParams.get("order") === "asc" ? 1 : -1 };
 
   const M = model(mod, resource);
@@ -238,7 +251,7 @@ export async function updateRecord(moduleKey: string, resourceKey: string, id: s
 function incomingRefs(moduleKey: string, resourceKey: string) {
   const key = `${moduleKey}.${resourceKey}`;
   const out: { module: ModuleDef; resource: ResourceDef; field: string }[] = [];
-  for (const m of MODULES) for (const r of m.resources) for (const f of r.fields) if (f.type === "ref" && f.ref === key) out.push({ module: m, resource: r, field: f.name });
+  for (const m of MODULES) for (const r of m.resources) for (const f of r.fields) if ((f.type === "ref" || f.type === "multiref") && f.ref === key) out.push({ module: m, resource: r, field: f.name });
   return out;
 }
 
@@ -277,7 +290,8 @@ export async function moduleCounts(mod: ModuleDef) {
   const fromCollections = (mod.collections ?? []).map(async (c) => ({
     key: c.name, label: c.label, count: await mongoose.connection.collection(c.name).estimatedDocumentCount(),
   }));
-  return Promise.all([...fromResources, ...fromCollections]);
+  // Bespoke workflows (e.g. lab orders) are the module's main records, so list them first.
+  return Promise.all([...fromCollections, ...fromResources]);
 }
 
 /** Records in other modules linked to a patient, limited to modules the viewer may open. */
@@ -314,7 +328,33 @@ export async function patientRelated(user: SessionUser, patientId: string) {
   } else {
     restricted.push("Pharmacy – Sale Bills");
   }
-  return { sections, restricted, pharmacy };
+
+  let lab: { total: number; items: Record<string, unknown>[] } | null = null;
+  if (canAccess(user, "laboratory")) {
+    const [docs, total] = await Promise.all([
+      LabOrder.find({ patient: oid }).sort({ orderDate: -1 }).limit(10).select("code orderDate status paymentStatus netAmount items.testName items.testCode items.status items.critical items.abnormal").lean(),
+      LabOrder.countDocuments({ patient: oid }),
+    ]);
+    lab = {
+      total,
+      items: docs.map((d) => {
+        const live = d.items.filter((i) => i.status !== "Cancelled");
+        return {
+          id: String(d._id), code: d.code, orderDate: d.orderDate.toISOString(), status: d.status, paymentStatus: d.paymentStatus, netAmount: d.netAmount,
+          tests: live.map((i) => i.testCode || i.testName).join(", "), reported: live.filter((i) => i.status === "Approved").length, count: live.length,
+          critical: live.some((i) => i.critical), abnormal: live.some((i) => i.abnormal),
+        };
+      }),
+    };
+  } else {
+    restricted.push("Laboratory – Lab Orders");
+  }
+
+  const insurance = canAccess(user, "insurance") ? await patientInsurance(oid) : null;
+  if (!insurance) restricted.push("Insurance – Pre-auths & Claims");
+  const ambulance = canAccess(user, "ambulance") ? await patientTrips(oid) : null;
+  if (!ambulance) restricted.push("Ambulance – Trips");
+  return { sections, restricted, pharmacy, lab, insurance, ambulance };
 }
 
 function lookupSub(resource: ResourceDef, d: Doc) {
@@ -326,7 +366,7 @@ function lookupSub(resource: ResourceDef, d: Doc) {
   return parts.filter(Boolean).join(" · ") || undefined;
 }
 
-export async function lookup(moduleKey: string, resourceKey: string, q: string) {
+export async function lookup(moduleKey: string, resourceKey: string, q: string, narrow: Record<string, string> = {}) {
   const { module: mod, resource } = resolve(moduleKey, resourceKey);
   if (!resource.lookup) throw new ApiError(404, "Lookup not available");
   await requireUser();
@@ -334,7 +374,13 @@ export async function lookup(moduleKey: string, resourceKey: string, q: string) 
   await rulesFor(mod, resource).beforeList?.();
 
   const filter: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(resource.lookupFilter ?? {})) filter[k] = v.includes("|") ? { $in: v.split("|") } : v;
+  const match = (v: string) => (v.includes("|") ? { $in: v.split("|") } : v);
+  // A picker may narrow by the target's select fields (e.g. only nurses); values must be valid options.
+  for (const [k, v] of Object.entries(narrow)) {
+    const field = resource.fields.find((f) => f.name === k && f.type === "select");
+    if (field && v.split("|").every((x) => field.options?.includes(x))) filter[k] = match(v);
+  }
+  for (const [k, v] of Object.entries(resource.lookupFilter ?? {})) filter[k] = match(v);
   if (q) {
     const rx = new RegExp(escapeRegex(q.slice(0, 100)), "i");
     const textual = new Set(["text", "tel", "email", "select"]);

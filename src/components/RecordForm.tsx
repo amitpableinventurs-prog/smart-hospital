@@ -1,7 +1,7 @@
 "use client";
 
-import { ChevronDown, LoaderCircle, Search, X } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Camera, ChevronDown, LoaderCircle, Search, Trash2, UserRound, X } from "lucide-react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/client";
 import { toInputValue } from "@/lib/format";
 import { resolveRef, type FieldDef, type ResourceDef } from "@/lib/modules";
@@ -26,11 +26,11 @@ export function initialValues(resource: ResourceDef, record?: Record<string, unk
 
 /** Labels of already-selected refs, so pickers can show names when editing. */
 export function initialRefLabels(resource: ResourceDef, record?: Record<string, unknown> | null) {
-  const out: Record<string, RefOption> = {};
+  const out: Record<string, RefOption | RefOption[]> = {};
   if (!record) return out;
   for (const f of resource.fields) {
-    const v = record[f.name] as RefOption | null;
-    if (f.type === "ref" && v && typeof v === "object") out[f.name] = v;
+    const v = record[f.name] as RefOption | RefOption[] | null;
+    if ((f.type === "ref" || f.type === "multiref") && v && typeof v === "object") out[f.name] = v;
   }
   return out;
 }
@@ -65,25 +65,30 @@ export function RecordFields({
   values: FormValues;
   errors: Record<string, string>;
   onChange: (name: string, value: string) => void;
-  refLabels?: Record<string, RefOption>;
+  refLabels?: Record<string, RefOption | RefOption[]>;
   disabled?: boolean;
 }) {
   const formId = useId();
   return (
     <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
-      {resource.fields.map((f) => {
+      {resource.fields.map((f, i) => {
         const id = `${formId}-${f.name}`;
         return (
-          <Field key={f.name} label={f.label} htmlFor={id} required={f.required && !f.readOnly} error={errors[f.name]} hint={f.hint} className={f.wide ? "sm:col-span-2" : undefined}>
-            <FieldInput id={id} field={f} value={values[f.name] ?? ""} error={errors[f.name]} onChange={(v) => onChange(f.name, v)} initialRef={refLabels?.[f.name]} disabled={disabled || f.readOnly} />
-          </Field>
+          <Fragment key={f.name}>
+            {f.section && (
+              <h3 className={cx("text-xs font-semibold uppercase tracking-wider text-brand-700 sm:col-span-2", i > 0 && "mt-2 border-t border-slate-100 pt-4")}>{f.section}</h3>
+            )}
+            <Field label={f.label} htmlFor={id} required={f.required && !f.readOnly} error={errors[f.name]} hint={f.hint} className={f.wide ? "sm:col-span-2" : undefined}>
+              <FieldInput id={id} field={f} value={values[f.name] ?? ""} error={errors[f.name]} onChange={(v) => onChange(f.name, v)} initialRef={refLabels?.[f.name]} disabled={disabled || f.readOnly} />
+            </Field>
+          </Fragment>
         );
       })}
     </div>
   );
 }
 
-function FieldInput({ id, field, value, error, onChange, initialRef, disabled }: { id: string; field: FieldDef; value: string; error?: string; onChange: (v: string) => void; initialRef?: RefOption; disabled?: boolean }) {
+function FieldInput({ id, field, value, error, onChange, initialRef, disabled }: { id: string; field: FieldDef; value: string; error?: string; onChange: (v: string) => void; initialRef?: RefOption | RefOption[]; disabled?: boolean }) {
   const common = {
     id,
     disabled,
@@ -108,7 +113,13 @@ function FieldInput({ id, field, value, error, onChange, initialRef, disabled }:
         </select>
       );
     case "ref":
-      return <RefSelect {...common} field={field} value={value} onChange={onChange} initial={initialRef} />;
+      return <RefSelect {...common} field={field} value={value} onChange={onChange} initial={Array.isArray(initialRef) ? undefined : initialRef} />;
+    case "multiref":
+      return <MultiRefSelect {...common} field={field} value={value} onChange={onChange} initial={Array.isArray(initialRef) ? initialRef : []} />;
+    case "multiselect":
+      return <MultiSelect id={id} field={field} value={value} onChange={onChange} disabled={disabled} error={error} />;
+    case "image":
+      return <PhotoInput id={id} value={value} onChange={onChange} disabled={disabled} />;
     case "date":
       return <input {...common} type="date" value={value} max={field.past ? today : undefined} onChange={(e) => onChange(e.target.value)} />;
     case "datetime":
@@ -132,6 +143,141 @@ function FieldInput({ id, field, value, error, onChange, initialRef, disabled }:
   }
 }
 
+/** Several references: removable chips plus a picker that adds one at a time. */
+function MultiRefSelect({ id, field, value, onChange, initial, disabled, className }: { id: string; field: FieldDef; value: string; onChange: (v: string) => void; initial: RefOption[]; disabled?: boolean; className: string }) {
+  const [known, setKnown] = useState<RefOption[]>(initial);
+  const ids = value ? value.split(",") : [];
+  const label = (rid: string) => known.find((k) => k.id === rid);
+  return (
+    <div className="space-y-2">
+      {ids.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5">
+          {ids.map((rid) => {
+            const o = label(rid);
+            return (
+              <li key={rid} className="inline-flex items-center gap-1 rounded-full bg-brand-50 py-1 pl-2.5 pr-1 text-xs font-medium text-brand-800 ring-1 ring-inset ring-brand-200">
+                {o ? o.label : rid.slice(-6)}
+                {o?.code && <span className="text-brand-600/70">{o.code}</span>}
+                {!disabled && (
+                  <button type="button" onClick={() => onChange(ids.filter((x) => x !== rid).join(","))} className="rounded-full p-0.5 hover:bg-brand-100" aria-label={`Remove ${o?.label ?? "item"}`}>
+                    <X className="size-3" />
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <RefSelect
+        id={id}
+        field={{ ...field, required: true, label: field.label.replace(/s$/, "") }}
+        value=""
+        disabled={disabled}
+        className={className}
+        onChange={() => {}}
+        onPick={(o) => {
+          if (!o || ids.includes(o.id)) return;
+          setKnown((k) => [...k, o]);
+          onChange([...ids, o.id].join(","));
+        }}
+      />
+    </div>
+  );
+}
+
+/** Toggle chips for picking several options (e.g. working days). */
+function MultiSelect({ id, field, value, onChange, disabled, error }: { id: string; field: FieldDef; value: string; onChange: (v: string) => void; disabled?: boolean; error?: string }) {
+  const selected = value ? value.split(",") : [];
+  const toggle = (o: string) => onChange((field.options ?? []).filter((x) => (x === o ? !selected.includes(o) : selected.includes(x))).join(","));
+  return (
+    <div id={id} role="group" aria-describedby={error ? `${id}-error` : undefined} className="flex flex-wrap gap-2">
+      {field.options?.map((o) => {
+        const on = selected.includes(o);
+        return (
+          <button
+            key={o}
+            type="button"
+            disabled={disabled}
+            aria-pressed={on}
+            onClick={() => toggle(o)}
+            className={cx(
+              "min-w-12 rounded-full px-3 py-1.5 text-sm font-medium ring-1 ring-inset transition-colors disabled:opacity-60",
+              on ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50",
+              error && !on && "ring-red-300"
+            )}
+          >
+            {o}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Downscale a picked image so it can be stored with the record. */
+async function resizeImage(file: File, maxSide: number): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return canvas.toDataURL("image/jpeg", 0.85);
+}
+
+function PhotoInput({ id, value, onChange, disabled }: { id: string; value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  async function pick(file: File | undefined) {
+    if (!file) return;
+    setProblem(null);
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) return setProblem("Choose a JPEG, PNG or WebP image.");
+    if (file.size > 10 * 1024 * 1024) return setProblem("Image must be smaller than 10 MB.");
+    setBusy(true);
+    try {
+      onChange(await resizeImage(file, 320));
+    } catch {
+      setProblem("This image could not be read.");
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-4">
+      <div className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200">
+        {value ? (
+          // eslint-disable-next-line @next/next/no-img-element -- data URL preview
+          <img src={value} alt="Doctor photo" className="size-full object-cover" />
+        ) : (
+          <UserRound className="size-9 text-slate-400" aria-hidden />
+        )}
+      </div>
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap gap-2">
+          <button id={id} type="button" disabled={disabled || busy} onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 disabled:opacity-60">
+            {busy ? <LoaderCircle className="size-4 animate-spin" /> : <Camera className="size-4" />} {value ? "Change photo" : "Upload photo"}
+          </button>
+          {value && (
+            <button type="button" disabled={disabled || busy} onClick={() => onChange("")} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60">
+              <Trash2 className="size-4" /> Remove
+            </button>
+          )}
+        </div>
+        {problem && <p className="text-xs text-red-600">{problem}</p>}
+      </div>
+      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" tabIndex={-1} onChange={(e) => pick(e.target.files?.[0])} />
+    </div>
+  );
+}
+
 /** Searchable picker backed by /api/lookup/<module>/<resource>. */
 export function RefSelect({ id, field, value, onChange, initial, disabled, className, onPick }: { id: string; field: FieldDef; value: string; onChange: (v: string) => void; initial?: RefOption; disabled?: boolean; className: string; onPick?: (o: RefOption | null) => void }) {
   const target = useMemo(() => resolveRef(field.ref!), [field.ref]);
@@ -151,7 +297,8 @@ export function RefSelect({ id, field, value, onChange, initial, disabled, class
       setLoading(true);
       setFailed(null);
       try {
-        const { data } = await api<RefOption[]>(`/api/lookup/${target.module.key}/${target.resource.key}?q=${encodeURIComponent(query)}`, { signal: ctrl.signal });
+        const narrow = Object.entries(field.refFilter ?? {}).map(([k, v]) => `&f.${k}=${encodeURIComponent(v)}`).join("");
+        const { data } = await api<RefOption[]>(`/api/lookup/${target.module.key}/${target.resource.key}?q=${encodeURIComponent(query)}${narrow}`, { signal: ctrl.signal });
         setOptions(data);
       } catch (e) {
         if ((e as Error).name !== "AbortError") setFailed((e as Error).message);
@@ -163,7 +310,7 @@ export function RefSelect({ id, field, value, onChange, initial, disabled, class
       clearTimeout(t);
       ctrl.abort();
     };
-  }, [open, query, target]);
+  }, [open, query, target, field.refFilter]);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => wrap.current && !wrap.current.contains(e.target as Node) && setOpen(false);
