@@ -98,7 +98,7 @@ function DayBook() {
           <>
             <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-5">
               <StatCard label="Pharmacy sales" value={formatMoney(d.summary.pharmacySales)} />
-              <StatCard label="Hospital invoices" value={formatMoney(d.summary.hospitalInvoices)} />
+              <StatCard label="Hospital bills"value={formatMoney(d.summary.hospitalInvoices)} />
               <StatCard label="Lab bills" value={formatMoney(d.summary.labBills ?? 0)} />
               <StatCard label="Collected" value={formatMoney(d.summary.received)} hint={d.summary.byMode.map((m) => `${m.mode} ${formatMoney(m.amount)}`).join(" · ") || "No collections"} />
               <StatCard label="Purchases" value={formatMoney(d.summary.purchases)} tone="slate" hint={d.summary.cancelled ? `${d.summary.cancelled} cancelled entr${d.summary.cancelled === 1 ? "y" : "ies"}` : undefined} />
@@ -116,7 +116,8 @@ function DayBook() {
                           <td className={cx(td, "font-mono text-xs")}>
                             {e.type === "Pharmacy sale" ? <Link className="text-brand-700 hover:underline" href={`/pharmacy/sales/${e.refId}`}>{e.ref}</Link>
                               : e.type === "Purchase" ? <Link className="text-brand-700 hover:underline" href={`/pharmacy/purchases/${e.refId}`}>{e.ref}</Link>
-                              : e.type === "Lab bill" ? <Link className="text-brand-700 hover:underline" href={`/laboratory/orders/${e.refId}`}>{e.ref}</Link> : e.ref}
+                              : e.type === "Lab bill" ? <Link className="text-brand-700 hover:underline" href={`/laboratory/orders/${e.refId}`}>{e.ref}</Link>
+                              : e.type === "Hospital bill" ? <Link className="text-brand-700 hover:underline" href={`/billing/bills/${e.refId}`}>{e.ref}</Link> : e.ref}
                           </td>
                           <td className={td}>{e.party}</td>
                           <td className={td}>{e.mode}</td>
@@ -377,7 +378,8 @@ function Outstanding() {
                         <tr key={`${r.source}-${r.id}`}>
                           <td className={td}>{r.source}</td>
                           <td className={cx(td, "font-mono text-xs")}>{r.source === "Pharmacy" ? <Link className="text-brand-700 hover:underline" href={`/pharmacy/sales/${r.id}`}>{r.ref}</Link>
-                            : r.source === "Laboratory" ? <Link className="text-brand-700 hover:underline" href={`/laboratory/orders/${r.id}`}>{r.ref}</Link> : r.ref}</td>
+                            : r.source === "Laboratory" ? <Link className="text-brand-700 hover:underline" href={`/laboratory/orders/${r.id}`}>{r.ref}</Link>
+                            : r.source === "Hospital billing" ? <Link className="text-brand-700 hover:underline" href={`/billing/bills/${r.id}`}>{r.ref}</Link> : r.ref}</td>
                           <td className={td}>{formatDate(r.date)}</td>
                           <td className={td}>{r.party}{r.phone && <span className="ml-1.5 text-xs text-slate-500">{r.phone}</span>}</td>
                           <td className={cx(td, "text-right")}>{money(r.billed)}</td>

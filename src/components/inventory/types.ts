@@ -69,6 +69,7 @@ export interface StockDocument {
   netAmount: number;
   costValue: number;
   chargeToPatient?: boolean;
+  billingInvoice?: string;
   billingInvoiceCode?: string;
   approvedAt?: string;
   approvedByName?: string;

@@ -92,7 +92,8 @@ const StockDocSchema = new Schema(
     /** Value of the movement at cost (issues, write-offs, adjustments…). */
     costValue: { type: Number, default: 0 },
     chargeToPatient: Boolean,
-    billingInvoice: { type: Schema.Types.ObjectId, ref: modelName("billing", "invoices") },
+    /** The hospital bill (billing_bills) the patient issue was charged to. */
+    billingInvoice: { type: Schema.Types.ObjectId, ref: "HospitalBill" },
     billingInvoiceCode: String,
     approvedAt: Date,
     approvedByName: String,

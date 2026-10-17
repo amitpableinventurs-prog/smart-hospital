@@ -283,7 +283,7 @@ export function TripView({ id }: { id: string }) {
               {trip.charges ? <ChargeTable charges={trip.charges} km={trip.distanceKm ?? 0} /> : <p className="text-slate-500">Calculated from the tariff when the trip is completed.</p>}
               {trip.discountReason && <p className="text-xs text-slate-500">{trip.billingMode === "No Charge" ? "Free trip" : "Discount"}: {trip.discountReason}</p>}
               <p><Badge tone={trip.paymentStatus === "Paid" || trip.paymentStatus === "On Hospital Bill" ? "green" : trip.paymentStatus === "No Charge" ? "slate" : "amber"}>{trip.paymentStatus}</Badge></p>
-              {trip.billCode && <p>Added to hospital bill <span className="font-mono text-brand-700">{trip.billCode}</span>; collected through Billing.</p>}
+              {trip.billCode && <p>Added to hospital bill {trip.bill ? <Link href={`/billing/bills/${trip.bill}`} className="font-mono text-brand-700 hover:underline">{trip.billCode}</Link> : <span className="font-mono text-brand-700">{trip.billCode}</span>}; collected through Billing.</p>}
               {trip.payments.length > 0 && (
                 <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
                   {trip.payments.map((p, i) => <li key={i} className="flex justify-between px-3 py-1.5"><span>{p.mode}{p.reference ? ` · ${p.reference}` : ""}<span className="block text-xs text-slate-500">{formatDateTime(p.at)} · {p.byName}</span></span><span className="tabular-nums">{formatMoney(p.amount)}</span></li>)}

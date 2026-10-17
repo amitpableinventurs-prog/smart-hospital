@@ -2,6 +2,7 @@ import "server-only";
 import type { Types } from "mongoose";
 import { ApiError, escapeRegex } from "./api";
 import { r2 } from "./billing-math";
+import { Bill } from "@/models/billing";
 import { LabOrder } from "@/models/laboratory";
 import { Purchase, Sale } from "@/models/pharmacy";
 import { getRecordModel } from "@/models/records";
@@ -25,12 +26,11 @@ const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : null);
 export async function dayBook(url: URL) {
   const date = day(url.searchParams.get("date"), todayUtc());
   const range = { $gte: date, $lte: END(date) };
-  const Invoices = getRecordModel("billing", "invoices")!;
 
-  const [sales, purchases, invoices, labOrders] = await Promise.all([
+  const [sales, purchases, bills, labOrders] = await Promise.all([
     Sale.find({ billDate: range }).sort({ createdAt: 1 }).select("-items").lean(),
     Purchase.find({ invoiceDate: range }).sort({ createdAt: 1 }).select("-items").lean(),
-    Invoices.find({ invoiceDate: range }).sort({ createdAt: 1 }).populate({ path: "patient", select: "fullName code" }).lean<Doc[]>(),
+    Bill.find({ billDate: range }).sort({ createdAt: 1 }).select("code patientName netAmount patientPaid status receipts.splits.mode createdAt").lean(),
     LabOrder.find({ orderDate: range }).sort({ createdAt: 1 }).select("code patientName netAmount paidAmount payments status createdAt").lean(),
   ]);
 
@@ -40,13 +40,11 @@ export async function dayBook(url: URL) {
       mode: s.paymentMode, amount: s.status === "Cancelled" ? 0 : s.netAmount, received: s.status === "Cancelled" ? 0 : (s.paidAmount ?? 0),
       paid: 0, cancelled: s.status === "Cancelled",
     })),
-    ...invoices.map((i) => {
-      const net = r2(Number(i.amount ?? 0) - Number(i.discount ?? 0));
-      const cancelled = i.status === "Cancelled";
+    ...bills.map((b) => {
+      const cancelled = b.status === "Cancelled";
       return {
-        at: iso(i.createdAt), type: "Hospital invoice", ref: String(i.code), refId: String(i._id),
-        party: (i.patient as Doc | null)?.fullName as string ?? "—", mode: (i.paymentMethod as string) ?? "—",
-        amount: cancelled ? 0 : net, received: cancelled ? 0 : Number(i.paidAmount ?? 0), paid: 0, cancelled,
+        at: iso(b.createdAt), type: "Hospital bill", ref: b.code, refId: String(b._id), party: b.patientName,
+        mode: b.receipts.at(-1)?.splits[0]?.mode ?? "—", amount: cancelled ? 0 : b.netAmount, received: cancelled ? 0 : b.patientPaid, paid: 0, cancelled,
       };
     }),
     ...labOrders.map((o) => {
@@ -71,7 +69,7 @@ export async function dayBook(url: URL) {
     entries,
     summary: {
       pharmacySales: r2(live.filter((e) => e.type === "Pharmacy sale").reduce((s, e) => s + e.amount, 0)),
-      hospitalInvoices: r2(live.filter((e) => e.type === "Hospital invoice").reduce((s, e) => s + e.amount, 0)),
+      hospitalInvoices: r2(live.filter((e) => e.type === "Hospital bill").reduce((s, e) => s + e.amount, 0)),
       labBills: r2(live.filter((e) => e.type === "Lab bill").reduce((s, e) => s + e.amount, 0)),
       purchases: r2(live.reduce((s, e) => s + e.paid, 0)),
       received: r2(live.reduce((s, e) => s + e.received, 0)),
@@ -212,13 +210,10 @@ export async function expiryReport(url: URL) {
 
 export async function outstanding() {
   const today = todayUtc();
-  const [sales, invoices, labOrders] = await Promise.all([
+  const [sales, bills, labOrders] = await Promise.all([
     Sale.find({ status: { $in: ["Unpaid", "Partially Paid"] } }).sort({ billDate: 1 }).select("-items").lean(),
-    getRecordModel("billing", "invoices")!
-      .find({ status: { $in: ["Unpaid", "Partially Paid"] } })
-      .sort({ invoiceDate: 1 })
-      .populate({ path: "patient", select: "fullName code mobile" })
-      .lean<Doc[]>(),
+    // Patient dues on final hospital bills; corporate / insurer dues are worked in Billing.
+    Bill.find({ status: "Final", patientDue: { $gt: 0 } }).sort({ billDate: 1 }).select("code billDate finalizedAt patientName patientMobile patientShare patientPaid patientDue").lean(),
     LabOrder.find({ paymentStatus: { $in: ["Unpaid", "Partially Paid"] } }).sort({ orderDate: 1 }).select("code orderDate patientName patientMobile netAmount paidAmount").lean(),
   ]);
   const age = (d: unknown) => (d instanceof Date ? Math.max(0, Math.round((today.getTime() - d.getTime()) / 86400_000)) : 0);
@@ -227,14 +222,10 @@ export async function outstanding() {
       source: "Pharmacy", id: String(s._id), ref: s.code, date: iso(s.billDate), party: s.customerName, phone: s.customerPhone ?? null,
       billed: s.netAmount, paid: s.paidAmount ?? 0, balance: r2(s.netAmount - (s.paidAmount ?? 0)), ageDays: age(s.billDate),
     })),
-    ...invoices.map((i) => {
-      const net = r2(Number(i.amount ?? 0) - Number(i.discount ?? 0));
-      const p = i.patient as Doc | null;
-      return {
-        source: "Hospital billing", id: String(i._id), ref: String(i.code), date: iso(i.invoiceDate), party: (p?.fullName as string) ?? "—",
-        phone: (p?.mobile as string) ?? null, billed: net, paid: Number(i.paidAmount ?? 0), balance: r2(net - Number(i.paidAmount ?? 0)), ageDays: age(i.invoiceDate),
-      };
-    }),
+    ...bills.map((b) => ({
+      source: "Hospital billing", id: String(b._id), ref: b.code, date: iso(b.billDate), party: b.patientName, phone: b.patientMobile ?? null,
+      billed: b.patientShare, paid: b.patientPaid, balance: b.patientDue, ageDays: age(b.finalizedAt ?? b.billDate),
+    })),
     ...labOrders.map((o) => ({
       source: "Laboratory", id: String(o._id), ref: o.code, date: iso(o.orderDate), party: o.patientName, phone: o.patientMobile ?? null,
       billed: o.netAmount, paid: o.paidAmount, balance: r2(o.netAmount - o.paidAmount), ageDays: age(o.orderDate),

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { SaleBillForm } from "@/components/pharmacy/SaleBillForm";
 import { connectDB } from "@/lib/db";
 import { isObjectId } from "@/lib/validation";
@@ -13,6 +14,8 @@ export default async function NewSalePage({ searchParams }: PageProps<"/pharmacy
   const { patient } = await searchParams;
   let initialPatient: { id: string; label: string; code?: string; phone?: string } | undefined;
   if (typeof patient === "string" && isObjectId(patient)) {
+    // Reading the database is request-time work, not part of the prerendered shell.
+    await connection();
     await connectDB();
     const p = await getRecordModel("patients", "patients")!.findById(patient).select("fullName code mobile").lean<Record<string, unknown>>();
     if (p) initialPatient = { id: patient, label: String(p.fullName), code: p.code as string, phone: p.mobile as string };

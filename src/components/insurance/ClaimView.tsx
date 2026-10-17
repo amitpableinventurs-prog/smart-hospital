@@ -256,7 +256,7 @@ export function ClaimView({ id }: { id: string }) {
           </Card>
           {claim.bill && (
             <Card>
-              <CardHeader title={`Bill ${claim.bill.code}`} description={claim.billDate ? `Dated ${formatDate(claim.billDate)}` : undefined} />
+              <CardHeader title={`Bill ${claim.bill.code}`} description={claim.billDate ? `Dated ${formatDate(claim.billDate)}` : undefined} actions={<Link href={`/billing/bills/${claim.bill.id}`} className="text-xs font-medium text-brand-700 hover:underline">Open bill →</Link>} />
               <dl className="grid grid-cols-2 gap-3 p-5 text-sm">
                 <Info label="Status" value={claim.bill.status} />
                 <Info label="Net bill" value={formatMoney(claim.bill.netAmount)} />

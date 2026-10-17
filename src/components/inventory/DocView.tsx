@@ -135,7 +135,7 @@ export function DocView({ id }: { id: string }) {
           {d.reason && <Meta label="Reason" value={d.reason} />}
           {d.requiredBy && <Meta label="Required by" value={formatDate(d.requiredBy)} />}
           {d.expectedDate && <Meta label="Expected delivery" value={formatDate(d.expectedDate)} />}
-          {d.billingInvoiceCode && <Meta label="Patient bill" value={d.billingInvoiceCode} />}
+          {d.billingInvoiceCode && <Meta label="Patient bill" value={d.billingInvoiceCode} link={d.billingInvoice ? `/billing/bills/${d.billingInvoice}` : undefined} />}
         </section>
 
         <LinesTable d={d} type={type} counts={counts} setCounts={setCounts} />

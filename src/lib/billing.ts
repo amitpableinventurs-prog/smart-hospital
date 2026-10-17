@@ -1471,11 +1471,11 @@ export async function postIssueCharges(
 }
 
 /** Throws unless the issue's charges can still be removed (the bill must be provisional). */
-export async function assertIssueChargesRemovable(billId: unknown, sourceId: unknown) {
+export async function assertIssueChargesRemovable(billId: unknown, sourceId: unknown, what = "cancelling this issue") {
   const bill = billId ? await Bill.findById(billId).select("code status lines.sourceId lines.status").lean() : null;
   if (!bill || bill.status === "Cancelled") return;
   if (!bill.lines.some((l) => sameId(l.sourceId, sourceId) && l.status !== "Cancelled")) return;
-  if (bill.status !== "Provisional") throw new ApiError(409, `Bill ${bill.code} is already final. Reopen it in Billing before cancelling this issue.`);
+  if (bill.status !== "Provisional") throw new ApiError(409, `Bill ${bill.code} is already final. Reopen it in Billing before ${what}.`);
 }
 
 /** Remove (cancel) an issue's charges, or reduce them for a return, on a provisional bill. */

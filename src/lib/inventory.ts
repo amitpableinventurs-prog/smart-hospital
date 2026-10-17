@@ -2,6 +2,7 @@ import "server-only";
 import mongoose, { Types } from "mongoose";
 import { ApiError, escapeRegex, pagination, parsePaging } from "./api";
 import { logActivity } from "./audit";
+import { adjustIssueCharges, assertIssueChargesRemovable, postIssueCharges } from "./billing";
 import { purchaseLine, purchaseTotals, r2 } from "./billing-math";
 import { DOC_CONFIG, ISSUE_DEPARTMENTS, PRIORITIES, isDocType, type DocType } from "./inventory-docs";
 import type { SessionUser } from "./session";
@@ -23,7 +24,6 @@ const Suppliers = () => model("suppliers");
 const Payments = () => model("supplier_payments");
 const Patients = () => getRecordModel("patients", "patients")!;
 const Admissions = () => getRecordModel("opd_ipd", "admissions")!;
-const Invoices = () => getRecordModel("billing", "invoices")!;
 
 const MAX_LINES = 150;
 
@@ -348,7 +348,7 @@ export async function createDoc(typeRaw: unknown, body: Record<string, unknown>,
   const ctx = { docType: type, docId, docCode: code, byName: user.name, at: now };
   let moves: Move[] = [];
   let summary = "";
-  let after: (() => Promise<void>) | null = null;
+  let after: ((created: { lines: { _id: Types.ObjectId }[] }) => Promise<void>) | null = null;
 
   switch (type) {
     /* ----- requisition & reservation: items + quantities ----- */
@@ -552,18 +552,22 @@ export async function createDoc(typeRaw: unknown, body: Record<string, unknown>,
         : `Issued ${lines.length} line(s) from ${store!.name} to patient ${patient!.fullName} (₹${doc.netAmount} at MRP)`;
       const chargeToPatient = type === "patient_issue" && body.chargeToPatient !== false && Number(doc.netAmount) > 0;
       doc.chargeToPatient = chargeToPatient;
-      after = async () => {
+      after = async (created) => {
         if (reservation) {
           reservation.status = "Consumed";
           await reservation.save();
         }
         if (chargeToPatient) {
-          const inv = await Invoices().create({
-            code: await nextCode("INV"), patient: patient!._id, invoiceDate: todayUtc(), amount: doc.netAmount, discount: 0, paidAmount: 0, status: "Unpaid",
-            description: `Medicines & consumables issued (${code}): ${lines.map((l) => `${l.itemName} × ${l.qty}`).join(", ")}`.slice(0, 1000),
-            createdBy: user.id, updatedBy: user.id,
-          });
-          await StockDoc.updateOne({ _id: docId }, { $set: { billingInvoice: inv._id, billingInvoiceCode: inv.code } });
+          // Charged at MRP on the patient's running bill (their admission's open bill, or a new provisional one).
+          const bill = await postIssueCharges(
+            {
+              patient: patient!, admission: doc.admission, sourceId: docId, sourceCode: code,
+              lines: created.lines.map((cl, i) => ({ lineId: cl._id, itemName: String(lines[i].itemName), batchNo: lines[i].batchNo as string | undefined, qty: Number(lines[i].qty), amount: Number(lines[i].amount) })),
+            },
+            user,
+            req
+          );
+          await StockDoc.updateOne({ _id: docId }, { $set: { billingInvoice: bill.id, billingInvoiceCode: bill.code } });
         }
       };
       break;
@@ -575,6 +579,7 @@ export async function createDoc(typeRaw: unknown, body: Record<string, unknown>,
       const src = isObjectId(String(body.against ?? "")) ? ((await StockDoc.findById(body.against)) as unknown as SDoc) : null;
       if (!src || !cfg.against!.includes(src.type as DocType)) fail({ against: `Select the ${cfg.against!.map((t) => DOC_CONFIG[t].singular.toLowerCase()).join(" / ")} to return against` });
       if (src.status !== "Posted") fail({ against: `${src.code} is ${src.status.toLowerCase()}` });
+      if (type === "return" && src.type === "patient_issue") await assertIssueChargesRemovable(src.billingInvoice, src._id, "returning these items");
       Object.assign(doc, { against: src._id, againstCode: src.code, againstType: src.type, supplier: src.supplier, supplierName: src.supplierName, patient: src.patient, patientName: src.patientName, patientCode: src.patientCode, department: src.department });
       const back = src.type === "transfer" ? { from: src.toStore!, fromName: src.toStoreName!, to: src.store!, toName: src.storeName! } : { from: src.store!, fromName: src.storeName!, to: src.store!, toName: src.storeName! };
       Object.assign(doc, { store: back.to, storeName: back.toName, toStore: src.type === "transfer" ? back.from : undefined, toStoreName: src.type === "transfer" ? back.fromName : undefined });
@@ -627,12 +632,9 @@ export async function createDoc(typeRaw: unknown, body: Record<string, unknown>,
           sl.returnedQty = r2((sl.returnedQty ?? 0) + Number(l.qty));
         }
         await src.save();
-        // Unpaid patient bills are reduced by the value returned.
+        // Returned items come off the patient's (provisional) bill.
         if (type === "return" && src.type === "patient_issue" && src.billingInvoice) {
-          const inv = await Invoices().findById(src.billingInvoice).lean<Doc>();
-          if (inv && inv.status === "Unpaid") {
-            await Invoices().updateOne({ _id: inv._id }, { $set: { amount: r2(Math.max(0, Number(inv.amount) - Number(doc.netAmount))) } });
-          }
+          await adjustIssueCharges(src.billingInvoice, src._id, { returns: lines.map((l) => ({ sourceLine: l.sourceLine, qty: Number(l.qty) })) }, user, req);
         }
       };
       break;
@@ -697,7 +699,7 @@ export async function createDoc(typeRaw: unknown, body: Record<string, unknown>,
     if (moves.length) await reverseMoves(docId, ctx);
     throw err;
   }
-  if (after) await after();
+  if (after) await after(created);
   await audit(req, user, type, created, summary, "create");
   return getDoc(String(created._id));
 }
@@ -801,11 +803,7 @@ export async function docAction(id: string, body: Record<string, unknown>, user:
         const paid = await Payments().countDocuments({ billRef: d.code });
         if (paid) throw new ApiError(409, "Payments are recorded against this GRN. Delete them before cancelling.");
       }
-      let invoice: Doc | null = null;
-      if (d.type === "patient_issue" && d.billingInvoice) {
-        invoice = await Invoices().findById(d.billingInvoice).lean<Doc>();
-        if (invoice && Number(invoice.paidAmount ?? 0) > 0) throw new ApiError(409, `Bill ${invoice.code} already has payments; settle it in Billing first.`);
-      }
+      if (d.type === "patient_issue") await assertIssueChargesRemovable(d.billingInvoice, d._id);
       await reverseMoves(d._id, { docType: d.type, docCode: d.code, byName: user.name });
       if (d.type === "grn" && d.po) {
         const po = (await StockDoc.findById(d.po)) as unknown as SDoc | null;
@@ -828,7 +826,7 @@ export async function docAction(id: string, body: Record<string, unknown>, user:
           await src.save();
         }
       }
-      if (invoice && invoice.status !== "Cancelled") await Invoices().updateOne({ _id: invoice._id }, { $set: { status: "Cancelled" } });
+      if (d.type === "patient_issue" && d.billingInvoice) await adjustIssueCharges(d.billingInvoice, d._id, { cancel: true, reason }, user, req);
     }
     d.status = "Cancelled";
     d.cancelledAt = now;
