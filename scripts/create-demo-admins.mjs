@@ -29,6 +29,7 @@ const ACCOUNTS = [
   ["Ambulance Admin", "ambulance", ["ambulance"]],
   ["Blood Bank Admin", "bloodbank", ["blood_bank"]],
   ["Pharmacy Admin", "pharmacy", ["pharmacy"]],
+  ["Marketing Admin", "marketing", ["marketing"]],
   ["Reports Admin", "reports", ["reports"]],
   ["Front Desk (combined)", "frontdesk", ["patients", "opd_ipd", "doctors", "billing"]],
   ["Medical Store (combined)", "store", ["pharmacy", "inventory", "reports"]],

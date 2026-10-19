@@ -12,6 +12,8 @@ export async function proxy(request: NextRequest) {
 
   // Shared lab reports are opened by patients/doctors without an account; the token is the credential.
   if (pathname.startsWith("/lab-report/")) return NextResponse.next();
+  // Biometric attendance machines push punches here; the route accepts only approved serial numbers.
+  if (pathname.startsWith("/iclock/")) return NextResponse.next();
 
   if (pathname === "/login") {
     return session ? NextResponse.redirect(new URL("/", request.url)) : NextResponse.next();

@@ -22,6 +22,9 @@ const AttendanceSchema = new Schema(
     lateMinutes: { type: Number, default: 0 },
     overtimeHours: { type: Number, default: 0, min: 0 },
     remarks: String,
+    /** "Biometric" marks are kept in step with the machine's punches; a manual edit takes over and is never overwritten. */
+    source: { type: String, enum: ["Manual", "Biometric"], default: "Manual" },
+    punches: Number,
     markedBy: { type: Schema.Types.ObjectId, ref: "User" },
     markedByName: String,
   },

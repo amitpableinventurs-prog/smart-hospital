@@ -8,6 +8,7 @@ import { HrSection } from "@/components/hr/HrSection";
 import { InsuranceSection } from "@/components/insurance/InsuranceSection";
 import { InventorySection } from "@/components/inventory/InventorySection";
 import { LabSection } from "@/components/laboratory/LabSection";
+import { MarketingSection } from "@/components/marketing/MarketingSection";
 import { ModuleIcon } from "@/components/ModuleIcon";
 import { ResourceManager } from "@/components/ResourceManager";
 import { PageHeader, cx } from "@/components/ui";
@@ -67,6 +68,8 @@ export function ModulePanel({ moduleKey, initialTab }: { moduleKey: ModuleKey; i
         <AmbulanceSection section={current.key} />
       ) : mod.key === "billing" ? (
         <BillingSection section={current.key} />
+      ) : mod.key === "marketing" ? (
+        <MarketingSection section={current.key} />
       ) : null}
     </>
   );

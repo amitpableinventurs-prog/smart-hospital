@@ -12,9 +12,11 @@ import { useApiQuery } from "@/lib/useApi";
 import { FormModal } from "../FormModal";
 import { TableCard } from "../TableCard";
 import { Alert, Badge, Button, Card, EmptyState, ErrorState, Kbd, Spinner, StatCard, cx, inputClass, statusTone, useDebounced, useHotkeys, useToast } from "../ui";
+import { BiometricAttendance } from "./Biometric";
 
-/** Bespoke HR tabs: attendance register, leave balances, payroll and reports. */
+/** Bespoke HR tabs: attendance register, biometric machines, leave balances, payroll and reports. */
 export function HrSection({ section }: { section: string }) {
+  if (section === "biometric") return <BiometricAttendance />;
   if (section === "leave_balance") return <LeaveBalances />;
   if (section === "payroll") return <PayrollList />;
   if (section === "reports") return <HrReports />;
@@ -47,6 +49,8 @@ interface AttRow {
   overtimeHours: number;
   remarks: string | null;
   markedByName: string | null;
+  biometric: boolean;
+  punches: number;
 }
 interface Register {
   date: string;
@@ -177,6 +181,7 @@ function AttendanceGrid({ data, onSaved }: { data: Register; onSaved: () => void
                         {MARKS.map((m) => <option key={m}>{m}</option>)}
                       </select>
                       {r.lateMinutes > 0 && <span className="mt-0.5 block text-xs text-amber-700">Late {r.lateMinutes} min</span>}
+                      {r.biometric && !changed && <span className="mt-0.5 block text-xs text-brand-700" title={`${r.markedByName ?? "Biometric"}. Editing this row turns it into a manual mark that punches no longer change.`}>Biometric · {r.punches} punch{r.punches === 1 ? "" : "es"}</span>}
                     </td>
                     <td className="px-3 py-2"><input type="time" value={e.inTime} disabled={disabled || !working} onChange={(ev) => set(r.id, { inTime: ev.target.value })} className={cx(inputClass, "w-28")} aria-label="In time" /></td>
                     <td className="px-3 py-2"><input type="time" value={e.outTime} disabled={disabled || !working} onChange={(ev) => set(r.id, { outTime: ev.target.value })} className={cx(inputClass, "w-28")} aria-label="Out time" /></td>

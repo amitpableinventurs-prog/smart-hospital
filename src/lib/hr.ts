@@ -261,7 +261,7 @@ export async function leaveBalances(url: URL) {
 }
 
 /** Approved leave of these staff overlapping the period, by staff id. */
-async function approvedLeaves(staffIds: Types.ObjectId[], from: Date, to: Date) {
+export async function approvedLeaves(staffIds: Types.ObjectId[], from: Date, to: Date) {
   const rows = await Leaves()
     .find({ staff: { $in: staffIds }, status: "Approved", fromDate: { $lte: to }, toDate: { $gte: from } })
     .select("staff leaveType fromDate toDate session code")
@@ -271,7 +271,7 @@ async function approvedLeaves(staffIds: Types.ObjectId[], from: Date, to: Date) 
   return out;
 }
 
-function leaveOn(leaves: Doc[] | undefined, d: Date) {
+export function leaveOn(leaves: Doc[] | undefined, d: Date) {
   return leaves?.find((l) => (l.fromDate as Date) <= d && (l.toDate as Date) >= d) ?? null;
 }
 
@@ -287,7 +287,7 @@ export async function assertAvailable(staff: Doc, date: Date, field: string) {
 
 /* ======================= attendance ======================= */
 
-function minutesOf(hhmm: unknown) {
+export function minutesOf(hhmm: unknown) {
   if (typeof hhmm !== "string" || !/^\d{2}:\d{2}$/.test(hhmm)) return null;
   const [h, m] = hhmm.split(":").map(Number);
   return h * 60 + m;
@@ -336,6 +336,8 @@ export async function attendanceRegister(url: URL) {
       overtimeHours: m?.overtimeHours ?? 0,
       remarks: m?.remarks ?? null,
       markedByName: m?.markedByName ?? null,
+      biometric: m?.source === "Biometric",
+      punches: m?.punches ?? 0,
     };
   });
   const count = (s: string) => rows.filter((r) => (r.status ?? r.derived) === s).length;
@@ -397,7 +399,7 @@ export async function saveAttendance(body: Record<string, unknown>, user: Sessio
       updateOne: {
         filter: { staff: s._id, date },
         update: {
-          $set: { status, inTime: working ? inTime : undefined, outTime: working ? outTime : undefined, lateMinutes: late, overtimeHours: working ? ot : 0, remarks: text(e.remarks, 200) || undefined, markedBy: new Types.ObjectId(user.id), markedByName: user.name },
+          $set: { status, inTime: working ? inTime : undefined, outTime: working ? outTime : undefined, lateMinutes: late, overtimeHours: working ? ot : 0, remarks: text(e.remarks, 200) || undefined, source: "Manual", markedBy: new Types.ObjectId(user.id), markedByName: user.name },
           $setOnInsert: { staff: s._id, date },
         },
         upsert: true,

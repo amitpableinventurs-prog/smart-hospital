@@ -1,6 +1,7 @@
 import "server-only";
 import type { Types } from "mongoose";
 import { ApiError, escapeRegex } from "./api";
+import { normalizePin } from "./biometric";
 import { WEEKDAYS, type RecordValues } from "./modules";
 import { WORKING_STATUSES, assertAvailable, assertMonthOpen, checkLeaveBalance, countLeaveDays, rosteredShifts } from "./hr";
 import { billOutstanding } from "./inventory";
@@ -45,6 +46,11 @@ function startOfToday() {
 function reject(field: string, message: string): never {
   throw new ApiError(422, message, { [field]: message });
 }
+
+/** Lead statuses after which a new enquiry from the same person opens a fresh lead. */
+const CLOSED_LEADS = ["Converted", "Not interested", "Lost"];
+/** Lead status after a follow-up with this outcome. */
+const FOLLOWUP_STATUS: Record<string, string> = { Interested: "Follow-up", "Call back later": "Follow-up", "Not reachable": "Contacted", "Appointment booked": "Appointment booked", "Not interested": "Not interested" };
 
 /** Excludes the record being edited from duplicate / clash queries. */
 function notSelf(existing: Doc | null) {
@@ -474,6 +480,14 @@ export const RULES: Record<string, ResourceRules> = {
         const dup = await M("hr", "staff").findOne({ doctor: m.doctor, ...notSelf(existing) }).select("code fullName").lean<Doc>();
         if (dup) reject("doctor", `Already linked to ${dup.fullName} (${dup.code})`);
       }
+      if (typeof v.biometricId === "string" && v.biometricId) {
+        // Machines drop leading zeros, so "042" and "42" are the same person.
+        const pin = normalizePin(v.biometricId);
+        if (!pin) reject("biometricId", "Use letters and digits only, as enrolled on the machine");
+        const others = await M("hr", "staff").find({ biometricId: { $nin: [null, ""] }, ...notSelf(existing) }).select("code fullName biometricId").lean<Doc[]>();
+        const dup = others.find((s) => normalizePin(s.biometricId) === pin);
+        if (dup) reject("biometricId", `Already used by ${dup.fullName} (${dup.code})`);
+      }
       // Leaving: nothing may still depend on this person after the last working day.
       if (existing && LEFT.includes(String(m.status)) && (v.status !== undefined || v.exitDate !== undefined)) {
         const exit = m.exitDate instanceof Date ? m.exitDate : startOfToday();
@@ -680,6 +694,31 @@ export const RULES: Record<string, ResourceRules> = {
     },
     afterDelete: async (d) => {
       if (d.status === "In Workshop") await releaseFromWorkshop(d.vehicle, d._id);
+    },
+  },
+
+  "marketing.leads": {
+    beforeSave: async (v, existing) => {
+      if (existing || typeof v.mobile !== "string") return;
+      // One open lead per person: further enquiries are follow-ups on it.
+      const open = await M("marketing", "leads").findOne({ mobile: v.mobile, status: { $nin: CLOSED_LEADS } }).select("code fullName").lean<Doc>();
+      if (open) reject("mobile", `${open.fullName} already has an open lead (${open.code}). Add a follow-up to it instead.`);
+    },
+  },
+
+  "marketing.followups": {
+    afterSave: async (doc) => {
+      const Leads = M("marketing", "leads");
+      const lead = await Leads.findById(doc.lead).select("status").lean<Doc>();
+      if (!lead) return;
+      const set: Record<string, unknown> = { nextFollowUp: doc.nextFollowUp instanceof Date ? doc.nextFollowUp : null };
+      const current = String(lead.status);
+      // Converted and lost leads keep their status; "Converted" itself needs the patient linked on the lead.
+      if (!["Converted", "Lost"].includes(current)) {
+        const next = FOLLOWUP_STATUS[String(doc.outcome)];
+        if (next && !(next === "Contacted" && current !== "New")) set.status = next;
+      }
+      await Leads.updateOne({ _id: lead._id }, { $set: set });
     },
   },
 };

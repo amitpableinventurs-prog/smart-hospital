@@ -130,6 +130,7 @@ export const MODULE_KEYS = [
   "ambulance",
   "blood_bank",
   "pharmacy",
+  "marketing",
   "reports",
 ] as const;
 
@@ -201,6 +202,15 @@ export const ATTENDANCE_STATUSES = ["Present", "Absent", "Half Day", "On Duty", 
 /* ---------- Ambulance ---------- */
 export const VEHICLE_TYPES = ["Basic Life Support", "Advanced Life Support", "Patient Transport", "Neonatal Transport", "Mortuary Van"] as const;
 export const TRIP_TYPES = ["Emergency", "Inter-facility Transfer", "Discharge Drop", "Scheduled Pickup", "Dead Body Transfer", "Event Standby"] as const;
+// Marketing
+export const LEAD_SOURCES = ["Walk-in", "Phone call", "Website", "Facebook / Instagram", "Google", "WhatsApp", "Referral partner", "Health camp", "Existing patient", "Newspaper / radio", "Hoarding / outdoor", "Corporate tie-up", "Other"] as const;
+export const LEAD_STATUSES = ["New", "Contacted", "Follow-up", "Appointment booked", "Converted", "Not interested", "Lost"] as const;
+export const FOLLOWUP_OUTCOMES = ["Interested", "Call back later", "Appointment booked", "Not reachable", "Not interested", "Converted"] as const;
+export const CAMPAIGN_CHANNELS = ["Facebook / Instagram", "Google Ads", "WhatsApp", "SMS", "Email", "Newspaper", "Radio / TV", "Hoarding / outdoor", "Health camp", "Event / CME", "Other"] as const;
+export const CAMP_TYPES = ["General check-up", "Diabetes", "Cardiac", "Eye", "Dental", "Women's health", "Paediatric", "Orthopaedic", "Blood donation", "Other"] as const;
+export const PARTNER_TYPES = ["Doctor / GP", "Clinic", "Nursing home", "Diagnostic centre", "Pharmacy", "Corporate", "Housing society", "NGO", "Other"] as const;
+export const FEEDBACK_AREAS = ["Doctor", "Nursing", "Front desk", "Billing", "Waiting time", "Cleanliness", "Food", "Facilities"] as const;
+
 export const AMB_EQUIPMENT = ["Oxygen", "Ventilator", "Defibrillator", "Cardiac Monitor", "Suction", "Infusion Pump", "Spine Board", "Stretcher", "Wheelchair", "Incubator", "Freezer Box"] as const;
 
 export const MODULES: ModuleDef[] = [
@@ -1009,11 +1019,13 @@ export const MODULES: ModuleDef[] = [
     // Attendance and payroll live in the bespoke HR workflow (lib/hr.ts).
     collections: [
       { name: "hr_attendance", label: "Attendance entries" },
+      { name: "hr_biometric_punches", label: "Biometric punches" },
       { name: "hr_payroll_runs", label: "Payroll runs" },
     ],
     groups: ["Workforce", "Attendance & Leave", "Payroll", "Masters", "Reports"],
     sections: [
       { key: "attendance", label: "Daily Attendance", group: "Attendance & Leave" },
+      { key: "biometric", label: "Biometric Attendance", group: "Attendance & Leave" },
       { key: "leave_balance", label: "Leave Balances", group: "Attendance & Leave" },
       { key: "payroll", label: "Payroll Runs", group: "Payroll" },
       { key: "reports", label: "HR Reports", group: "Reports" },
@@ -1057,6 +1069,7 @@ export const MODULES: ModuleDef[] = [
           { name: "reportingTo", label: "Reports to", type: "ref", ref: "hr.staff" },
           { name: "shift", label: "Default shift", type: "ref", ref: "hr.shifts", hint: "Late arrivals are measured against this shift's start" },
           { name: "weeklyOff", label: "Weekly off", type: "select", options: [...WORK_WEEK, "Rotational"], required: true, default: "Sun", hint: "Rotational: mark week-offs in Daily Attendance" },
+          { name: "biometricId", label: "Biometric ID", type: "text", maxLength: 24, search: true, placeholder: "e.g. 42", hint: "The user ID this employee is enrolled under on the attendance machine" },
           { name: "doctor", label: "Doctor profile", type: "ref", ref: "doctors.doctors", hint: "Link salaried doctors to their Doctors master record" },
 
           { name: "registrationNo", label: "Council registration no.", type: "text", maxLength: 40, search: true, section: "Professional registration", hint: "Nursing / medical / pharmacy / paramedical council" },
@@ -1476,6 +1489,189 @@ export const MODULES: ModuleDef[] = [
     collections: [
       { name: "pharmacy_sales", label: "sale bills" },
       { name: "pharmacy_purchases", label: "purchase entries" },
+    ],
+  },
+  {
+    key: "marketing",
+    label: "Marketing",
+    description: "Leads and follow-ups, campaigns, health camps, referral partners and patient feedback",
+    icon: "megaphone",
+    groups: ["Overview", "Leads", "Campaigns", "Referrals", "Feedback"],
+    // The overview (funnel, conversions, cost per lead) is computed in lib/marketing.ts.
+    sections: [{ key: "overview", label: "Overview", group: "Overview" }],
+    resources: [
+      {
+        key: "leads",
+        group: "Leads",
+        label: "Leads & Enquiries",
+        singular: "Lead",
+        codePrefix: "LEAD",
+        labelField: "fullName",
+        statusField: "status",
+        lookup: true,
+        lookupFields: ["mobile", "interestedIn"],
+        check: (v) => {
+          const errors: Record<string, string> = {};
+          if (v.status === "Converted" && !v.patient) errors.patient = "Link the registered patient to mark the lead converted";
+          if (v.status === "Lost" && !v.lostReason) errors.lostReason = "Why was the lead lost?";
+          if (v.source === "Referral partner" && !v.referrer) errors.referrer = "Select the referral partner";
+          return errors;
+        },
+        fields: [
+          { name: "fullName", label: "Name", type: "text", required: true, maxLength: 120, list: true, search: true, section: "Enquiry" },
+          { name: "mobile", label: "Mobile", type: "tel", required: true, list: true, search: true },
+          { name: "email", label: "Email", type: "email", search: true },
+          { name: "gender", label: "Gender", type: "select", options: GENDERS },
+          { name: "age", label: "Age", type: "number", min: 0, max: 120 },
+          { name: "area", label: "Area / city", type: "text", maxLength: 80, search: true },
+          { name: "enquiryDate", label: "Enquiry date", type: "date", required: true, past: true, list: true },
+          { name: "interestedIn", label: "Interested in", type: "select", options: [...DEPARTMENTS, "Health check-up", "Surgery / procedure", "Diagnostics", "Other"], required: true, list: true },
+          { name: "requirement", label: "Requirement", type: "textarea", maxLength: 500, wide: true, search: true, placeholder: "e.g. Knee replacement cost, cardiology consultation for father" },
+
+          { name: "source", label: "Source", type: "select", options: LEAD_SOURCES, required: true, list: true, section: "Source" },
+          { name: "campaign", label: "Campaign", type: "ref", ref: "marketing.campaigns", hint: "The campaign that brought this lead, for cost per lead" },
+          { name: "referrer", label: "Referral partner", type: "ref", ref: "marketing.referrers" },
+
+          { name: "status", label: "Status", type: "select", options: LEAD_STATUSES, required: true, default: "New", list: true, section: "Follow-up" },
+          { name: "assignedTo", label: "Assigned to", type: "ref", ref: "hr.staff" },
+          { name: "nextFollowUp", label: "Next follow-up", type: "date", list: true, hint: "Shown in the Overview when due" },
+          { name: "patient", label: "Registered patient", type: "ref", ref: "patients.patients", hint: "Link once the lead registers; required to mark it converted" },
+          { name: "lostReason", label: "Lost / not interested because", type: "text", maxLength: 200 },
+          { name: "notes", label: "Notes", type: "textarea", maxLength: 1000, wide: true },
+        ],
+      },
+      {
+        key: "followups",
+        group: "Leads",
+        label: "Follow-ups",
+        singular: "Follow-up",
+        labelField: "outcome",
+        fields: [
+          { name: "lead", label: "Lead", type: "ref", ref: "marketing.leads", required: true, list: true },
+          { name: "followedUpAt", label: "Date & time", type: "datetime", required: true, list: true },
+          { name: "mode", label: "Mode", type: "select", options: ["Call", "WhatsApp", "SMS", "Email", "Visit"], required: true, default: "Call", list: true },
+          { name: "outcome", label: "Outcome", type: "select", options: FOLLOWUP_OUTCOMES, required: true, list: true },
+          { name: "nextFollowUp", label: "Next follow-up", type: "date", list: true, hint: "Updates the lead" },
+          { name: "byStaff", label: "By", type: "ref", ref: "hr.staff" },
+          { name: "notes", label: "Notes", type: "textarea", maxLength: 1000, wide: true, search: true },
+        ],
+      },
+      {
+        key: "campaigns",
+        group: "Campaigns",
+        label: "Campaigns",
+        singular: "Campaign",
+        codePrefix: "CMP",
+        labelField: "name",
+        statusField: "status",
+        lookup: true,
+        lookupFields: ["channel", "code"],
+        check: notBefore("endDate", "startDate", "Cannot end before it starts"),
+        fields: [
+          { name: "name", label: "Campaign name", type: "text", required: true, maxLength: 120, list: true, search: true, placeholder: "e.g. Free cardiac check-up week" },
+          { name: "channel", label: "Channel", type: "select", options: CAMPAIGN_CHANNELS, required: true, list: true },
+          { name: "focus", label: "Speciality / service", type: "select", options: [...DEPARTMENTS, "Health check-up", "Hospital brand", "Other"] },
+          { name: "startDate", label: "Starts", type: "date", required: true, list: true },
+          { name: "endDate", label: "Ends", type: "date", list: true },
+          { name: "budget", label: "Budget (₹)", type: "number", min: 0 },
+          { name: "spent", label: "Spent so far (₹)", type: "number", min: 0, list: true, hint: "Used for cost per lead in the Overview" },
+          { name: "targetLeads", label: "Target leads", type: "number", min: 0 },
+          { name: "owner", label: "Owner", type: "ref", ref: "hr.staff" },
+          { name: "status", label: "Status", type: "select", options: ["Planned", "Active", "Paused", "Completed", "Cancelled"], required: true, default: "Planned", list: true },
+          { name: "notes", label: "Notes", type: "textarea", maxLength: 1000, wide: true },
+        ],
+      },
+      {
+        key: "camps",
+        group: "Campaigns",
+        label: "Health Camps",
+        singular: "Health Camp",
+        codePrefix: "CAMP",
+        labelField: "name",
+        statusField: "status",
+        fields: [
+          { name: "name", label: "Camp name", type: "text", required: true, maxLength: 120, list: true, search: true },
+          { name: "campType", label: "Type", type: "select", options: CAMP_TYPES, required: true, list: true },
+          { name: "campDate", label: "Date", type: "date", required: true, list: true },
+          { name: "venue", label: "Venue", type: "text", required: true, maxLength: 160, list: true, search: true },
+          { name: "campaign", label: "Campaign", type: "ref", ref: "marketing.campaigns" },
+          { name: "partner", label: "Organised with", type: "ref", ref: "marketing.referrers", hint: "Society, corporate or clinic hosting the camp" },
+          { name: "doctors", label: "Doctors", type: "multiref", ref: "doctors.doctors" },
+          { name: "expectedFootfall", label: "Expected footfall", type: "number", min: 0 },
+          { name: "screened", label: "People screened", type: "number", min: 0, list: true },
+          { name: "leadsGenerated", label: "Leads generated", type: "number", min: 0, hint: "Enter them under Leads with source Health camp" },
+          { name: "cost", label: "Cost (₹)", type: "number", min: 0 },
+          { name: "status", label: "Status", type: "select", options: ["Planned", "Completed", "Cancelled"], required: true, default: "Planned", list: true },
+          { name: "notes", label: "Notes", type: "textarea", maxLength: 1000, wide: true },
+        ],
+      },
+      {
+        key: "referrers",
+        group: "Referrals",
+        label: "Referral Partners",
+        singular: "Referral Partner",
+        codePrefix: "RFP",
+        labelField: "name",
+        statusField: "status",
+        lookup: true,
+        lookupFields: ["partnerType", "area"],
+        lookupFilter: { status: "Active" },
+        fields: [
+          { name: "name", label: "Name", type: "text", required: true, maxLength: 120, list: true, search: true, placeholder: "e.g. Dr. Mehta Clinic, Sunrise Society" },
+          { name: "partnerType", label: "Type", type: "select", options: PARTNER_TYPES, required: true, list: true },
+          { name: "contactPerson", label: "Contact person", type: "text", maxLength: 120, search: true },
+          { name: "mobile", label: "Mobile", type: "tel", list: true, search: true },
+          { name: "email", label: "Email", type: "email" },
+          { name: "speciality", label: "Speciality", type: "text", maxLength: 80, hint: "For doctors and clinics" },
+          { name: "area", label: "Area / city", type: "text", maxLength: 80, list: true, search: true },
+          { name: "address", label: "Address", type: "textarea", maxLength: 300, wide: true },
+          { name: "tieUp", label: "Tie-up", type: "select", options: ["None", "MoU", "Empanelled", "Corporate agreement"], default: "None" },
+          { name: "agreementValidUntil", label: "Agreement valid until", type: "date" },
+          { name: "relationshipManager", label: "Relationship manager", type: "ref", ref: "hr.staff" },
+          { name: "status", label: "Status", type: "select", options: ACTIVE, required: true, default: "Active", list: true },
+          { name: "notes", label: "Notes", type: "textarea", maxLength: 1000, wide: true },
+        ],
+      },
+      {
+        key: "visits",
+        group: "Referrals",
+        label: "Field Visits",
+        singular: "Field Visit",
+        labelField: "purpose",
+        fields: [
+          { name: "referrer", label: "Partner visited", type: "ref", ref: "marketing.referrers", required: true, list: true },
+          { name: "visitDate", label: "Date", type: "date", required: true, past: true, list: true },
+          { name: "staff", label: "Visited by", type: "ref", ref: "hr.staff", required: true, list: true },
+          { name: "purpose", label: "Purpose", type: "select", options: ["Introduction", "Relationship visit", "New service briefing", "Camp planning", "Feedback / complaint", "Other"], required: true, list: true },
+          { name: "outcome", label: "Outcome", type: "textarea", maxLength: 500, wide: true, search: true },
+          { name: "nextVisit", label: "Next visit", type: "date" },
+        ],
+      },
+      {
+        key: "feedback",
+        group: "Feedback",
+        label: "Patient Feedback",
+        singular: "Feedback",
+        codePrefix: "FB",
+        labelField: "name",
+        statusField: "status",
+        check: (v): Record<string, string> =>
+          (v.status === "Resolved" || v.status === "Closed") && typeof v.rating === "number" && v.rating <= 2 && !v.actionTaken ? { actionTaken: "Record the action taken on a poor rating" } : {},
+        fields: [
+          { name: "patient", label: "Patient", type: "ref", ref: "patients.patients", hint: "Optional — feedback can be anonymous" },
+          { name: "name", label: "Name", type: "text", required: true, maxLength: 120, list: true, search: true, default: "Anonymous" },
+          { name: "mobile", label: "Mobile", type: "tel", search: true },
+          { name: "receivedOn", label: "Date", type: "date", required: true, past: true, list: true },
+          { name: "channel", label: "Received via", type: "select", options: ["OPD form", "Ward / discharge form", "Phone", "WhatsApp", "Email", "Google review", "Social media", "Other"], required: true, list: true },
+          { name: "department", label: "Department", type: "select", options: STAFF_DEPARTMENTS },
+          { name: "rating", label: "Overall rating (1–5)", type: "number", min: 1, max: 5, required: true, list: true },
+          { name: "recommend", label: "Would recommend (0–10)", type: "number", min: 0, max: 10, hint: "Net Promoter Score question" },
+          { name: "aboutArea", label: "About", type: "multiselect", options: FEEDBACK_AREAS },
+          { name: "comments", label: "Comments", type: "textarea", maxLength: 2000, wide: true, search: true },
+          { name: "status", label: "Status", type: "select", options: ["New", "Acknowledged", "Resolved", "Closed"], required: true, default: "New", list: true },
+          { name: "actionTaken", label: "Action taken", type: "textarea", maxLength: 1000, wide: true },
+        ],
+      },
     ],
   },
   {
