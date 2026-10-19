@@ -9,7 +9,8 @@
     "lint": "eslint",
     "create-super-admin": "node --env-file=.env.local scripts/create-super-admin.mjs",
     "typecheck": "tsc --noEmit",
-    "create-demo-admins": "node --env-file=.env.local scripts/create-demo-admins.mjs"
+    "create-demo-admins": "node --env-file=.env.local scripts/create-demo-admins.mjs",
+    "build:windows": "node scripts/build-windows.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

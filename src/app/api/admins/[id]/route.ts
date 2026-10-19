@@ -71,7 +71,7 @@ export const PATCH = handle<Ctx>(async (req, { params }) => {
   }
   if ("modules" in body) {
     try {
-      const mods = parseModules(body.modules);
+      const mods = parseModules(body.modules, me.modules);
       const before = [...(user.modules ?? [])];
       if ([...before].sort().join() !== [...mods].sort().join()) {
         changes.push(`modules ${moduleLabels(before)} → ${moduleLabels(mods)}`);

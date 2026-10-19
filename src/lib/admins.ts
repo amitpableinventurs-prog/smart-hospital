@@ -57,11 +57,14 @@ export function serializeAdmin(u: UserLike, actions7d?: number): AdminRow {
 
 const MODULES_ERROR = { modules: "Select at least one module" };
 
-export function parseModules(raw: unknown): ModuleKey[] {
+/** `allowed`: the modules that exist here (on a client installation, the licensed ones). */
+export function parseModules(raw: unknown, allowed?: readonly ModuleKey[]): ModuleKey[] {
   if (!Array.isArray(raw)) throw new ApiError(422, "Select at least one module", MODULES_ERROR);
   const unique = [...new Set(raw)];
   const mods = unique.filter(isModuleKey);
   if (mods.length !== unique.length) throw new ApiError(422, "Unknown module selected", { modules: "Unknown module selected" });
+  const unlicensed = allowed ? mods.filter((m) => !allowed.includes(m)) : [];
+  if (unlicensed.length) throw new ApiError(422, `Not licensed: ${moduleLabels(unlicensed)}`, { modules: `Not included in your licence: ${moduleLabels(unlicensed)}` });
   if (mods.length === 0) throw new ApiError(422, "Select at least one module", MODULES_ERROR);
   return mods;
 }

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Hospital } from "lucide-react";
+import { redirect } from "next/navigation";
+import { licenceView } from "@/lib/licence";
 import { LoginForm } from "./LoginForm";
 
 // Every request re-checks the session against the database (deactivation and
@@ -10,6 +12,8 @@ export const metadata: Metadata = { title: "Sign in" };
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const { next } = await searchParams;
+  const licence = await licenceView();
+  if (licence.locked?.reason === "not_activated") redirect("/setup");
   // Only allow same-site relative redirects.
   const safeNext = typeof next === "string" && next.startsWith("/") && !next.startsWith("//") ? next : undefined;
 
@@ -40,7 +44,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
             <span className="text-lg font-semibold text-slate-900">MediCare</span>
           </div>
           <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Sign in</h2>
-          <p className="mt-1 text-sm text-slate-500">Use the account provided by your super admin.</p>
+          <p className="mt-1 text-sm text-slate-500">{licence.mode === "client" && licence.hospitalName ? `${licence.hospitalName} · ` : ""}Use the account provided by your super admin.</p>
           <LoginForm next={safeNext} />
         </div>
       </div>

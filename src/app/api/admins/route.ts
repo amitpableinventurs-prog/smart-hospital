@@ -58,7 +58,7 @@ export const POST = handle(async (req) => {
   if (pwError) errors.password = pwError;
   let modules: ModuleKey[] = [];
   try {
-    modules = parseModules(body.modules);
+    modules = parseModules(body.modules, me.modules);
   } catch (e) {
     if (e instanceof ApiError && e.fields) Object.assign(errors, e.fields);
     else throw e;

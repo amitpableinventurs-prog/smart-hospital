@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, CreditCard, Crown, Hospital, KeyRound, LayoutDashboard, LogOut, Menu, UserCog, X } from "lucide-react";
+import { Activity, BadgeCheck, Building2, CreditCard, Crown, Hospital, KeyRound, LayoutDashboard, LogOut, Menu, UserCog, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -26,7 +26,13 @@ interface NavItem {
   sections?: { key: string; label: string; group?: string }[];
 }
 
-export function AppShell({ user, children }: { user: ShellUser; children: ReactNode }) {
+/** How this server is deployed (see lib/deployment.ts); adds the Control Panel or licence screens. */
+export interface ShellDeployment {
+  mode: "standalone" | "control" | "client";
+  hospitalName: string | null;
+}
+
+export function AppShell({ user, deployment, children }: { user: ShellUser; deployment?: ShellDeployment; children: ReactNode }) {
   const pathname = usePathname();
   const tabParam = useSearchParams().get("tab");
   const router = useRouter();
@@ -43,6 +49,8 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
         { href: "/super-admin/admins", label: "Admins & Access", icon: <UserCog className="size-4" /> },
         { href: "/super-admin/activity", label: "Activity Log", icon: <Activity className="size-4" /> },
         { href: "/super-admin/payments", label: "Payment Gateway", icon: <CreditCard className="size-4" /> },
+        ...(deployment?.mode === "control" ? [{ href: "/super-admin/clients", label: "Clients & Licences", icon: <Building2 className="size-4" /> }] : []),
+        ...(deployment?.mode === "client" ? [{ href: "/super-admin/licence", label: "Licence & Sync", icon: <BadgeCheck className="size-4" /> }] : []),
       ]
     : [{ href: "/dashboard", label: "Dashboard", icon: <LayoutDashboard className="size-4" />, exact: true }];
 
@@ -73,7 +81,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
         </div>
         <div>
           <p className="text-sm font-semibold leading-tight text-white">MediCare</p>
-          <p className="text-[11px] leading-tight text-brand-200">Hospital ERP</p>
+          <p className="text-[11px] leading-tight text-brand-200">{deployment?.mode === "client" && deployment.hospitalName ? deployment.hospitalName : deployment?.mode === "control" ? "Control Panel" : "Hospital ERP"}</p>
         </div>
       </div>
 

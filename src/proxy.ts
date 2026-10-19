@@ -14,6 +14,8 @@ export async function proxy(request: NextRequest) {
   if (pathname.startsWith("/lab-report/")) return NextResponse.next();
   // Biometric attendance machines push punches here; the route accepts only approved serial numbers.
   if (pathname.startsWith("/iclock/")) return NextResponse.next();
+  // First-run activation of a client installation, before any account exists.
+  if (pathname === "/setup") return NextResponse.next();
 
   if (pathname === "/login") {
     return session ? NextResponse.redirect(new URL("/", request.url)) : NextResponse.next();

@@ -64,9 +64,21 @@ export const POST = handle(async (req) => {
   res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: secureCookie(req),
     path: "/",
     maxAge: SESSION_TTL_SECONDS,
   });
   return res;
 });
+
+/**
+ * Secure cookies only travel over HTTPS. Hospital workstations open the app on
+ * plain http://server-pc:3010 over the LAN, so mark the cookie Secure only when
+ * the request really came over HTTPS (directly or through the HTTPS proxy).
+ * COOKIE_SECURE=1 / 0 forces it either way.
+ */
+function secureCookie(req: Request) {
+  const forced = process.env.COOKIE_SECURE;
+  if (forced === "1" || forced === "0") return forced === "1";
+  return new URL(req.url).protocol === "https:" || req.headers.get("x-forwarded-proto")?.split(",")[0].trim() === "https";
+}
