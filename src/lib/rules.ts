@@ -1,5 +1,6 @@
 import "server-only";
 import type { Types } from "mongoose";
+import { ACCOUNTS_RULES } from "./accounts";
 import { ApiError, escapeRegex } from "./api";
 import { normalizePin } from "./biometric";
 import { WEEKDAYS, type RecordValues } from "./modules";
@@ -721,4 +722,6 @@ export const RULES: Record<string, ResourceRules> = {
       await Leads.updateOne({ _id: lead._id }, { $set: set });
     },
   },
+
+  ...ACCOUNTS_RULES,
 };

@@ -29,6 +29,18 @@ const SaleLineSchema = new Schema(
   { _id: false }
 );
 
+/** Payments received after the bill was made (credit bills); the amount paid at billing is not listed here. */
+const SalePaymentSchema = new Schema(
+  {
+    amount: { type: Number, required: true, min: 0.01 },
+    mode: { type: String, enum: PAYMENT_MODES, required: true },
+    reference: String,
+    at: { type: Date, default: () => new Date() },
+    byName: String,
+  },
+  { _id: false }
+);
+
 const SaleSchema = new Schema(
   {
     code: { type: String, required: true, unique: true },
@@ -47,6 +59,7 @@ const SaleSchema = new Schema(
     roundOff: Number,
     netAmount: { type: Number, required: true },
     paidAmount: { type: Number, default: 0 },
+    payments: { type: [SalePaymentSchema], default: [] },
     status: { type: String, enum: ["Paid", "Partially Paid", "Unpaid", "Cancelled"], required: true },
     notes: String,
     cancelledAt: Date,

@@ -263,8 +263,10 @@ export async function cancelSale(id: string, reason: string, user: SessionUser, 
     await Batches().updateOne({ _id: l.batch }, { $inc: { quantity: l.qty } });
     await Items().updateOne({ _id: l.item }, { $inc: { quantity: l.qty } });
   }
+  // Restock at cost, like the sale took it out, so the stock value stays right.
+  const costs = new Map((await Batches().find({ _id: { $in: sale.items.map((l) => l.batch) } }).select("purchaseRate").lean<Doc[]>()).map((b) => [String(b._id), Number(b.purchaseRate ?? 0)]));
   await ledger(
-    sale.items.map((l) => ({ item: l.item, itemName: l.itemName, batch: l.batch, batchNo: l.batchNo, qty: l.qty })),
+    sale.items.map((l) => ({ item: l.item, itemName: l.itemName, batch: l.batch, batchNo: l.batchNo, qty: l.qty, rate: costs.get(String(l.batch)) ?? 0 })),
     { store: await ensureStore("Pharmacy"), txn: "Pharmacy sale (cancelled)", docType: "pharmacy_sale", docId: sale._id, docCode: sale.code, party: sale.customerName, byName: user.name }
   );
   await logActivity({
@@ -286,6 +288,7 @@ export async function receivePayment(id: string, body: Record<string, unknown>, 
   if (!(PAYMENT_MODES as readonly string[]).includes(mode) || mode === "Credit") fail({ paymentMode: "Select how the payment was received" });
   const reference = typeof body.reference === "string" ? body.reference.trim().slice(0, 60) : "";
   sale.paidAmount = r2((sale.paidAmount ?? 0) + amount);
+  sale.payments.push({ amount: r2(amount), mode: mode as (typeof PAYMENT_MODES)[number], reference: reference || undefined, at: new Date(), byName: user.name });
   sale.status = paymentStatus(sale.netAmount, sale.paidAmount);
   await sale.save();
   await logActivity({

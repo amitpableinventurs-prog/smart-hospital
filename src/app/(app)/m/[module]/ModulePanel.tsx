@@ -1,6 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
+import { AccountsSection } from "@/components/accounts/AccountsSection";
 import { AmbulanceSection } from "@/components/ambulance/AmbulanceSection";
 import { BillingSection } from "@/components/billing/BillingSection";
 import { BloodStockSummary } from "@/components/BloodStockSummary";
@@ -70,6 +71,8 @@ export function ModulePanel({ moduleKey, initialTab }: { moduleKey: ModuleKey; i
         <BillingSection section={current.key} />
       ) : mod.key === "marketing" ? (
         <MarketingSection section={current.key} />
+      ) : mod.key === "accounts" ? (
+        <AccountsSection section={current.key} />
       ) : null}
     </>
   );

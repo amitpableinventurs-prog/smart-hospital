@@ -4,7 +4,8 @@
  *   npm run build:windows -- --control-url=https://control.yourcompany.com
  *
  * Options:
- *   --control-url=URL   your Control Panel (APP_MODE=control) — required; baked into the setup
+ *   --control-url=URL   your Control Panel (APP_MODE=control) — optional; pre-fills the licence server
+ *                       field, which the setup asks for on every server install
  *   --mongo-bin=DIR     MongoDB server binaries to bundle (default: newest under C:\Program Files\MongoDB\Server)
  *   --skip-build        reuse the last standalone build in .next/standalone
  *

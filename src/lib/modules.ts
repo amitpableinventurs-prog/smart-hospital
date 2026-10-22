@@ -7,6 +7,8 @@
  * server-only imports.
  */
 
+import { GST_STATE_OPTIONS, NATURES } from "./accounts-shared";
+
 export type FieldType =
   | "text"
   | "textarea"
@@ -131,6 +133,7 @@ export const MODULE_KEYS = [
   "blood_bank",
   "pharmacy",
   "marketing",
+  "accounts",
   "reports",
 ] as const;
 
@@ -1670,6 +1673,75 @@ export const MODULES: ModuleDef[] = [
           { name: "comments", label: "Comments", type: "textarea", maxLength: 2000, wide: true, search: true },
           { name: "status", label: "Status", type: "select", options: ["New", "Acknowledged", "Resolved", "Closed"], required: true, default: "New", list: true },
           { name: "actionTaken", label: "Action taken", type: "textarea", maxLength: 1000, wide: true },
+        ],
+      },
+    ],
+  },
+  {
+    key: "accounts",
+    label: "Accounts & GST",
+    description: "Double-entry books like Marg / Tally: vouchers, ledgers, cash & bank book, trial balance, P&L, balance sheet and GST returns",
+    icon: "landmark",
+    // Vouchers are posted automatically from billing, pharmacy, lab, ambulance, purchases and payroll (lib/accounts.ts).
+    collections: [{ name: "accounts_vouchers", label: "Vouchers" }],
+    groups: ["Vouchers", "Books", "Final Accounts", "GST", "Masters"],
+    sections: [
+      { key: "daybook", label: "Day Book", group: "Vouchers" },
+      { key: "ledger", label: "Ledger Statement", group: "Books" },
+      { key: "cashbank", label: "Cash & Bank Book", group: "Books" },
+      { key: "outstanding", label: "Receivables & Payables", group: "Books" },
+      { key: "trial", label: "Trial Balance", group: "Final Accounts" },
+      { key: "pl", label: "Profit & Loss", group: "Final Accounts" },
+      { key: "bs", label: "Balance Sheet", group: "Final Accounts" },
+      { key: "gstr1", label: "GSTR-1", group: "GST" },
+      { key: "gstr3b", label: "GSTR-3B", group: "GST" },
+      { key: "itc", label: "Purchase Register (ITC)", group: "GST" },
+      { key: "settings", label: "Accounts Settings", group: "Masters" },
+    ],
+    resources: [
+      {
+        key: "ledgers",
+        group: "Masters",
+        label: "Ledgers",
+        singular: "Ledger",
+        labelField: "name",
+        statusField: "status",
+        lookup: true,
+        lookupFields: ["groupName"],
+        lookupFilter: { status: "Active" },
+        unique: ["name"],
+        fields: [
+          { name: "name", label: "Ledger name", type: "text", required: true, maxLength: 120, list: true, search: true, placeholder: "e.g. Electricity Charges, HDFC Bank", section: "Ledger" },
+          { name: "group", label: "Under group", type: "ref", ref: "accounts.groups", required: true, list: true, hint: "Bank accounts under Bank Accounts, suppliers under Sundry Creditors, expenses under Direct / Indirect Expenses" },
+          { name: "groupName", label: "Group", type: "text", readOnly: true },
+          { name: "openingBalance", label: "Opening balance", type: "number", min: 0, default: 0, list: true, hint: "Balance on the day the books start" },
+          { name: "openingType", label: "Dr / Cr", type: "select", options: ["Dr", "Cr"], required: true, default: "Dr", hint: "Assets and expenses are usually Dr; liabilities, capital and income Cr" },
+          { name: "gstin", label: "GSTIN", type: "text", maxLength: 15, search: true, section: "Party & GST details", hint: "For suppliers and B2B customers; used in GST returns" },
+          { name: "state", label: "State", type: "select", options: GST_STATE_OPTIONS, hint: "Filled from the GSTIN when left blank" },
+          { name: "phone", label: "Phone", type: "tel" },
+          { name: "email", label: "Email", type: "email" },
+          { name: "address", label: "Address", type: "textarea", maxLength: 300, wide: true },
+          { name: "bankName", label: "Bank", type: "text", maxLength: 80, section: "Bank details" },
+          { name: "accountNo", label: "Account no.", type: "text", maxLength: 30 },
+          { name: "ifsc", label: "IFSC", type: "text", maxLength: 15 },
+          { name: "systemKey", label: "Used by automatic postings", type: "text", readOnly: true, hint: "System ledgers cannot be deleted or moved to another group" },
+          { name: "status", label: "Status", type: "select", options: ACTIVE, required: true, default: "Active", list: true },
+        ],
+      },
+      {
+        key: "groups",
+        group: "Masters",
+        label: "Account Groups",
+        singular: "Account Group",
+        labelField: "name",
+        lookup: true,
+        lookupFields: ["nature"],
+        unique: ["name"],
+        fields: [
+          { name: "name", label: "Group name", type: "text", required: true, maxLength: 80, list: true, search: true, placeholder: "e.g. Administrative Expenses" },
+          { name: "parent", label: "Under group", type: "ref", ref: "accounts.groups", list: true, hint: "Every new group sits under an existing one and takes its nature" },
+          { name: "nature", label: "Nature", type: "select", options: NATURES, readOnly: true, list: true },
+          { name: "systemKey", label: "Built-in group", type: "text", readOnly: true },
         ],
       },
     ],
