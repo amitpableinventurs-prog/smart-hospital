@@ -2,6 +2,7 @@ import { ApiError, handle, ok, readJson } from "@/lib/api";
 import { moduleLabels, parseAdminProfile, parseModules, serializeAdmin } from "@/lib/admins";
 import { logActivity } from "@/lib/audit";
 import { connectDB } from "@/lib/db";
+import { assertSeatAvailable } from "@/lib/licence";
 import { requireUser } from "@/lib/session";
 import { isObjectId } from "@/lib/validation";
 import { ActivityLog } from "@/models/ActivityLog";
@@ -85,6 +86,7 @@ export const PATCH = handle<Ctx>(async (req, { params }) => {
   if ("active" in body) {
     if (typeof body.active !== "boolean") errors.active = "Invalid status";
     else if (body.active !== user.active) {
+      if (body.active) await assertSeatAvailable(String(user._id));
       changes.push(body.active ? "activated account" : "deactivated account");
       user.active = body.active;
       // Ends any open sessions immediately.

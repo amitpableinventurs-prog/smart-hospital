@@ -33,6 +33,16 @@ const LicenceSchema = new Schema(
     lastError: String,
     /** Set by the Control Panel to upload everything again. */
     resyncRequestedAt: Date,
+    planCode: String,
+    planName: String,
+    trial: { type: Boolean, default: false },
+    /** Staff logins allowed; 0 = unlimited. */
+    maxUsers: { type: Number, default: 0 },
+    /** App name, colour, logo and letterhead for this hospital (lib/licence-protocol.ts Branding). */
+    branding: Schema.Types.Mixed,
+    brandingAt: Date,
+    /** The vendor's contact details, shown when the licence needs attention. */
+    vendor: Schema.Types.Mixed,
   },
   { timestamps: true, collection: "app_licence" }
 );

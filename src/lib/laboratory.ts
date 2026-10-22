@@ -10,6 +10,7 @@ import { isObjectId, isValidEmail } from "./validation";
 import { nextAccession, nextCode } from "@/models/Counter";
 import { LabOrder, ORDER_SOURCES, PRIORITIES, REJECT_REASONS, type LabOrderDoc } from "@/models/laboratory";
 import { getRecordModel } from "@/models/records";
+import { orgInfo } from "./org";
 
 type Doc = Record<string, unknown> & { _id: Types.ObjectId };
 type OrderDoc = mongoose.HydratedDocument<LabOrderDoc>;
@@ -89,10 +90,11 @@ function plain(v: unknown): unknown {
 
 export function labInfo() {
   return {
-    name: process.env.HOSPITAL_NAME || "MediCare Hospital",
+    name: orgInfo().name,
     department: process.env.LAB_NAME || "Department of Laboratory Medicine",
-    address: process.env.HOSPITAL_ADDRESS || "",
-    phone: process.env.HOSPITAL_PHONE || "",
+    address: orgInfo().address,
+    phone: orgInfo().phone,
+    logo: orgInfo().logo,
     accreditation: process.env.LAB_ACCREDITATION || "",
   };
 }

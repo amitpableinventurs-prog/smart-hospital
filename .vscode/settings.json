@@ -11,5 +11,6 @@
   "files.exclude": {
     "**/.next": true
   },
-  "typescript.tsserver.maxTsServerMemory": 3072
+  "typescript.tsserver.maxTsServerMemory": 3072,
+  "sarif-viewer.connectToGithubCodeScanning": "off"
 }

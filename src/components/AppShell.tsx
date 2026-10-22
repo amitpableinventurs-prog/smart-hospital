@@ -1,11 +1,13 @@
 "use client";
 
-import { Activity, BadgeCheck, Building2, CreditCard, Crown, Hospital, KeyRound, LayoutDashboard, LogOut, Menu, UserCog, X } from "lucide-react";
+import { Activity, BadgeCheck, Building2, CreditCard, Crown, Gem, KeyRound, LayoutDashboard, LogOut, Megaphone, Menu, ReceiptIndianRupee, UserCog, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { api } from "@/lib/client";
+import type { LicenceView } from "@/lib/licence-protocol";
 import { MODULE_MAP, moduleHref, moduleSections, type ModuleKey, type Role } from "@/lib/modules";
+import { BrandMark } from "./BrandTheme";
 import { ModuleIcon } from "./ModuleIcon";
 import { ToastProvider, cx } from "./ui";
 
@@ -30,6 +32,7 @@ interface NavItem {
 export interface ShellDeployment {
   mode: "standalone" | "control" | "client";
   hospitalName: string | null;
+  brand?: LicenceView["brand"];
 }
 
 export function AppShell({ user, deployment, children }: { user: ShellUser; deployment?: ShellDeployment; children: ReactNode }) {
@@ -49,7 +52,14 @@ export function AppShell({ user, deployment, children }: { user: ShellUser; depl
         { href: "/super-admin/admins", label: "Admins & Access", icon: <UserCog className="size-4" /> },
         { href: "/super-admin/activity", label: "Activity Log", icon: <Activity className="size-4" /> },
         { href: "/super-admin/payments", label: "Payment Gateway", icon: <CreditCard className="size-4" /> },
-        ...(deployment?.mode === "control" ? [{ href: "/super-admin/clients", label: "Clients & Licences", icon: <Building2 className="size-4" /> }] : []),
+        ...(deployment?.mode === "control"
+          ? [
+              { href: "/super-admin/clients", label: "Clients & Licences", icon: <Building2 className="size-4" /> },
+              { href: "/super-admin/plans", label: "Plans & Pricing", icon: <Gem className="size-4" /> },
+              { href: "/super-admin/subscriptions", label: "Licence Payments", icon: <ReceiptIndianRupee className="size-4" /> },
+              { href: "/super-admin/sales", label: "Sales & Marketing", icon: <Megaphone className="size-4" /> },
+            ]
+          : []),
         ...(deployment?.mode === "client" ? [{ href: "/super-admin/licence", label: "Licence & Sync", icon: <BadgeCheck className="size-4" /> }] : []),
       ]
     : [{ href: "/dashboard", label: "Dashboard", icon: <LayoutDashboard className="size-4" />, exact: true }];
@@ -76,11 +86,9 @@ export function AppShell({ user, deployment, children }: { user: ShellUser; depl
   const nav = (
     <nav className="flex h-full flex-col">
       <div className="flex items-center gap-2.5 px-5 py-5">
-        <div className="rounded-lg bg-brand-600 p-1.5 text-white">
-          <Hospital className="size-5" aria-hidden />
-        </div>
+        <BrandMark brand={deployment?.brand} />
         <div>
-          <p className="text-sm font-semibold leading-tight text-white">MediCare</p>
+          <p className="text-sm font-semibold leading-tight text-white">{deployment?.brand?.appName ?? "MediCare"}</p>
           <p className="text-[11px] leading-tight text-brand-200">{deployment?.mode === "client" && deployment.hospitalName ? deployment.hospitalName : deployment?.mode === "control" ? "Control Panel" : "Hospital ERP"}</p>
         </div>
       </div>

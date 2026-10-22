@@ -12,6 +12,7 @@ import { Bill, DayClose, RECEIPT_KINDS, Shift, type BillDoc } from "@/models/bil
 import { LabOrder } from "@/models/laboratory";
 import { Sale } from "@/models/pharmacy";
 import { getRecordModel } from "@/models/records";
+import { orgInfo } from "./org";
 
 type Doc = Record<string, unknown> & { _id: Types.ObjectId };
 type BDoc = mongoose.HydratedDocument<BillDoc>;
@@ -90,10 +91,12 @@ function plain(v: unknown): unknown {
 
 export function hospitalInfo() {
   return {
-    name: process.env.HOSPITAL_NAME || "MediCare Hospital",
-    address: process.env.HOSPITAL_ADDRESS || "",
-    phone: process.env.HOSPITAL_PHONE || "",
-    gstin: process.env.HOSPITAL_GSTIN || "",
+    name: orgInfo().name,
+    address: orgInfo().address,
+    phone: orgInfo().phone,
+    gstin: orgInfo().gstin,
+    logo: orgInfo().logo,
+    footer: orgInfo().footer,
   };
 }
 

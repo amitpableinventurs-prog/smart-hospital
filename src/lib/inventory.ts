@@ -11,6 +11,7 @@ import { nextCode } from "@/models/Counter";
 import { Ledger, StockDoc, type StockDocDoc } from "@/models/inventory";
 import { Purchase } from "@/models/pharmacy";
 import { getRecordModel } from "@/models/records";
+import { orgInfo } from "./org";
 
 type Doc = Record<string, unknown> & { _id: Types.ObjectId };
 type SDoc = mongoose.HydratedDocument<StockDocDoc>;
@@ -864,7 +865,7 @@ export async function getDoc(id: string) {
     linked: linked.map((l) => plain(l)),
     payments: payments.map((p) => ({ code: p.code, date: (p.paymentDate as Date)?.toISOString(), amount: p.amount, mode: p.mode, reference: p.reference ?? null })),
     supplierInfo: supplier ? { name: supplier.name, phone: supplier.phone, email: supplier.email ?? null, gstin: supplier.gstin ?? null, address: supplier.address ?? null } : null,
-    org: { name: process.env.HOSPITAL_NAME || "MediCare Hospital", address: process.env.HOSPITAL_ADDRESS || "", phone: process.env.HOSPITAL_PHONE || "", gstin: process.env.HOSPITAL_GSTIN || "" },
+    org: (({ name, address, phone, gstin, logo }) => ({ name, address, phone, gstin, logo }))(orgInfo()),
   };
 }
 

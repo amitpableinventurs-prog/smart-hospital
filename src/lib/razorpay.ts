@@ -6,6 +6,7 @@ import { logActivity } from "./audit";
 import type { SessionUser } from "./session";
 import { GatewayAccount } from "@/models/payments";
 import { User } from "@/models/User";
+import { orgInfo } from "./org";
 
 /* ======================= secret encryption ======================= */
 
@@ -210,7 +211,7 @@ function resolved(a: AccountDoc & { secretEnc: string }, label: string): Resolve
     label,
     keyId: a.keyId,
     mode: a.mode as "test" | "live",
-    displayName: a.displayName || process.env.HOSPITAL_NAME || "MediCare Hospital",
+    displayName: a.displayName || orgInfo().name,
     credentials: () => ({ keyId: a.keyId, secret: decrypt(a.secretEnc) }),
   };
 }
@@ -229,6 +230,12 @@ export async function accountFor(user: SessionUser): Promise<ResolvedAccount | n
     return resolved(hospital as AccountDoc & { secretEnc: string }, "Hospital account");
   }
   return null;
+}
+
+/** The hospital account when it is enabled — on the Control Panel server, the vendor's account that licence renewals are paid into. */
+export async function hospitalAccount(): Promise<ResolvedAccount | null> {
+  const a = await GatewayAccount.findOne(ownerFilter(null)).select("+secretEnc");
+  return a?.enabled ? resolved(a as AccountDoc & { secretEnc: string }, "Vendor account") : null;
 }
 
 /** Account by id, for verifying a payment against the account its order was raised on. */

@@ -18,7 +18,10 @@ export default function ClientsPage() {
   const [status, setStatus] = useState("");
   const debounced = useDebounced(search);
   const q = useApiQuery<ClientRow[]>(`/api/control/clients${qs({ search: debounced, status })}`);
-  const rows = q.data ?? q.stale ?? [];
+  const [plan, setPlan] = useState("");
+  const all = q.data ?? q.stale ?? [];
+  const soon = Date.now() + 30 * 86_400_000;
+  const rows = plan === "trial" ? all.filter((c) => c.trial) : plan === "expiring" ? all.filter((c) => c.expiresAt && new Date(c.expiresAt).getTime() < soon) : all;
   const [creating, setCreating] = useState(false);
   const [issued, setIssued] = useState<{ id: string; name: string; licenceKey: string } | null>(null);
 
@@ -50,15 +53,20 @@ export default function ClientsPage() {
                 <option>Active</option>
                 <option>Suspended</option>
               </select>
+              <select value={plan} onChange={(e) => setPlan(e.target.value)} className={cx(inputClass, "md:w-44")} aria-label="Plan">
+                <option value="">Any plan</option>
+                <option value="trial">On free trial</option>
+                <option value="expiring">Expiring in 30 days</option>
+              </select>
             </div>
             {q.loading && !q.stale ? (
               <Spinner label="Loading clients…" />
             ) : rows.length === 0 ? (
-              <EmptyState title={debounced || status ? "No clients match" : "No clients yet"} description="Create a client to issue a licence key for their installation." action={!debounced && !status && <Button onClick={() => setCreating(true)}><Plus className="size-4" /> New client</Button>} />
+              <EmptyState title={debounced || status || plan ? "No clients match" : "No clients yet"} description="Create a client to issue a licence key for their installation." action={!debounced && !status && !plan && <Button onClick={() => setCreating(true)}><Plus className="size-4" /> New client</Button>} />
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-slate-100 text-sm">
-                  <thead className="bg-slate-50/60"><tr>{["Hospital", "Licence", "Modules", "Installation", "Last check-in", "Data upload"].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
+                  <thead className="bg-slate-50/60"><tr>{["Hospital", "Licence", "Plan", "Installation", "Last check-in", "Data upload"].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {rows.map((c) => (
                       <tr key={c.id} className="hover:bg-slate-50/60">
@@ -70,7 +78,10 @@ export default function ClientsPage() {
                           {c.status === "Suspended" ? <Badge tone="red">Suspended</Badge> : isExpired(c) ? <Badge tone="red">Expired</Badge> : <Badge tone="green">Active</Badge>}
                           <div className="mt-0.5 text-xs text-slate-500">{c.expiresAt ? `Until ${formatDate(c.expiresAt)}` : "No expiry"}</div>
                         </td>
-                        <td className="px-4 py-2.5 tabular-nums text-slate-700">{c.modules.length}</td>
+                        <td className="px-4 py-2.5 text-slate-700">
+                          {c.plan ? c.plan.name : <span className="text-slate-500">Custom</span>} {c.trial && <Badge tone="violet">Trial</Badge>}
+                          <div className="text-xs text-slate-500">{c.modules.length} module(s){c.maxUsers ? ` · ${c.maxUsers} logins` : ""}</div>
+                        </td>
                         <td className="px-4 py-2.5 text-slate-700">{c.installed ? c.activationHost ?? "Activated" : <span className="text-slate-500">Not activated</span>}{c.lastVersion && <div className="text-xs text-slate-500">v{c.lastVersion}</div>}</td>
                         <td className="px-4 py-2.5">{isOnline(c) ? <Badge tone="green">Online</Badge> : <span className="text-slate-600">{c.lastSeenAt ? timeAgo(c.lastSeenAt) : "Never"}</span>}</td>
                         <td className="px-4 py-2.5 text-slate-600">{!c.syncEnabled ? <span className="text-slate-400">Off</span> : c.lastSyncAt ? timeAgo(c.lastSyncAt) : "—"}</td>

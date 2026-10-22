@@ -4,6 +4,7 @@ import { moduleLabels, parseAdminProfile, parseModules, serializeAdmin } from "@
 import { logActivity } from "@/lib/audit";
 import { connectDB } from "@/lib/db";
 import { isModuleKey, type ModuleKey } from "@/lib/modules";
+import { assertSeatAvailable } from "@/lib/licence";
 import { requireUser } from "@/lib/session";
 import { isValidEmail, validatePassword } from "@/lib/validation";
 import { ActivityLog } from "@/models/ActivityLog";
@@ -66,6 +67,7 @@ export const POST = handle(async (req) => {
   if (Object.keys(errors).length) throw new ApiError(422, "Please correct the highlighted fields", errors);
 
   await connectDB();
+  await assertSeatAvailable();
   if (await User.exists({ email })) {
     throw new ApiError(409, "An account with this email already exists", { email: "Already in use" });
   }

@@ -1,7 +1,9 @@
 "use client";
 
-import { RefreshCw, UploadCloud } from "lucide-react";
+import { CreditCard, Gift, RefreshCw, UploadCloud } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { RenewModal, RenewalPayments, VendorContact, useRenewalInfo } from "@/components/licence/Renewal";
 import { Alert, Badge, Button, Card, CardHeader, ErrorState, PageHeader, Spinner, useToast } from "@/components/ui";
 import { api } from "@/lib/client";
 import { formatDate, formatDateTime, timeAgo } from "@/lib/format";
@@ -17,7 +19,10 @@ export default function LicencePage() {
   const q = useApiQuery<Data>("/api/licence");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const params = useSearchParams();
+  const [renewing, setRenewing] = useState(() => params.get("renew") === "1");
   const d = q.data ?? q.stale;
+  const renewal = useRenewalInfo(d?.mode === "client");
 
   async function check() {
     setBusy("check");
@@ -67,7 +72,9 @@ export default function LicencePage() {
           <CardHeader title={d.hospitalName ?? "Licence"} description={d.clientCode ?? undefined} />
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 px-5 pb-5 text-sm">
             <dt className="text-slate-500">Status</dt><dd>{d.locked ? <Badge tone="red">{d.locked.reason}</Badge> : <Badge tone="green">Active</Badge>}</dd>
-            <dt className="text-slate-500">Valid until</dt><dd>{d.expiresAt ? formatDate(d.expiresAt) : "No expiry"}</dd>
+            <dt className="text-slate-500">Plan</dt><dd>{d.plan?.name ?? "—"} {d.trial && <Badge tone="violet"><Gift className="size-3" /> Free trial</Badge>}</dd>
+            <dt className="text-slate-500">Valid until</dt><dd>{d.expiresAt ? `${formatDate(d.expiresAt)}${d.expiresInDays !== null && d.expiresInDays >= 0 ? ` (${d.expiresInDays} day${d.expiresInDays === 1 ? "" : "s"} left)` : ""}` : "No expiry"}</dd>
+            <dt className="text-slate-500">Staff logins</dt><dd>{d.maxUsers ? `Up to ${d.maxUsers}` : "Unlimited"}</dd>
             <dt className="text-slate-500">Last licence check</dt><dd>{formatDateTime(d.lastCheckAt)}</dd>
             <dt className="text-slate-500">Works offline for</dt><dd>{d.offlineDaysLeft ?? "—"} more day(s)</dd>
             <dt className="text-slate-500">Licence server</dt><dd className="break-all font-mono text-xs">{d.controlUrl ?? "—"}</dd>
@@ -78,6 +85,26 @@ export default function LicencePage() {
             <div className="flex flex-wrap gap-1.5">{(d.modules ?? []).map((m) => <Badge key={m} tone="blue">{MODULE_MAP[m]?.label ?? m}</Badge>)}</div>
             <p className="mt-2 text-xs text-slate-500">Only these modules can be assigned to admins. Contact your vendor to add more.</p>
           </div>
+        </Card>
+        <Card>
+          <CardHeader
+            title="Plan & payments"
+            description={d.trial ? "Choose a plan before the free trial ends; your data stays as it is." : "Renew before the licence ends, or upgrade for more modules and logins."}
+            actions={<Button onClick={() => setRenewing(true)}><CreditCard className="size-4" /> {d.trial ? "Choose a plan" : "Renew / upgrade"}</Button>}
+          />
+          {renewal.error ? (
+            <p className="px-5 py-4 text-sm text-slate-500">Payments could not be loaded: {renewal.error}</p>
+          ) : !renewal.info ? (
+            <Spinner label="Loading payments…" />
+          ) : (
+            <RenewalPayments payments={renewal.info.payments} onChanged={() => { renewal.reload(); q.reload(); }} />
+          )}
+          {d.vendor && (
+            <div className="border-t border-slate-100 px-5 py-3 text-sm text-slate-600">
+              Vendor: <span className="font-medium text-slate-900">{d.vendor.name}</span>
+              <VendorContact vendor={d.vendor} className="mt-1 text-slate-700" />
+            </div>
+          )}
         </Card>
         <Card>
           <CardHeader title="Data upload" description="Changes are uploaded every 10 minutes while online. Passwords and payment keys never leave this computer." />
@@ -100,6 +127,17 @@ export default function LicencePage() {
           )}
         </Card>
       </div>
+      {renewing && (
+        <RenewModal
+          onClose={() => setRenewing(false)}
+          onPaid={(p) => {
+            toast(`Payment received — licence valid until ${formatDate(p.periodTo)}`);
+            setRenewing(false);
+            renewal.reload();
+            q.reload();
+          }}
+        />
+      )}
     </>
   );
 }

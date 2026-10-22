@@ -16,6 +16,8 @@ export async function proxy(request: NextRequest) {
   if (pathname.startsWith("/iclock/")) return NextResponse.next();
   // First-run activation of a client installation, before any account exists.
   if (pathname === "/setup") return NextResponse.next();
+  // Public plans and "request a demo" on the Control Panel server.
+  if (pathname === "/pricing") return NextResponse.next();
 
   if (pathname === "/login") {
     return session ? NextResponse.redirect(new URL("/", request.url)) : NextResponse.next();

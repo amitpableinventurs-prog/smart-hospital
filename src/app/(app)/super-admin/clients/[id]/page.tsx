@@ -1,12 +1,15 @@
 "use client";
 
-import { ArrowLeft, Ban, CheckCircle2, Database, Globe, KeyRound, Pencil, RefreshCw, RotateCcw, Server, XCircle } from "lucide-react";
+import { ArrowLeft, Ban, CheckCircle2, Database, Gift, Globe, Hospital, IndianRupee, KeyRound, Palette, Pencil, RefreshCw, RotateCcw, Server, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
+import { BrandingForm } from "@/components/control/BrandingForm";
 import { ClientForm, LicenceKeyModal, isExpired, isOnline, type ClientRow } from "@/components/control/ClientForm";
+import { PaymentsTable, RecordPaymentModal } from "@/components/control/Payments";
 import { Alert, Badge, Button, Card, CardHeader, ConfirmDialog, ErrorState, PageHeader, Spinner, useToast } from "@/components/ui";
 import { api } from "@/lib/client";
+import type { PaymentRow } from "@/lib/control-shared";
 import { formatDate, formatDateTime, timeAgo } from "@/lib/format";
 import { MODULE_MAP } from "@/lib/modules";
 import { useApiQuery } from "@/lib/useApi";
@@ -18,7 +21,10 @@ export default function ClientPage() {
   const toast = useToast();
   const q = useApiQuery<ClientRow>(`/api/control/clients/${id}`);
   const data = useApiQuery<{ dbName: string; lastSyncAt: string | null; collections: { name: string; docs: number }[] }>(`/api/control/clients/${id}/data`);
+  const payments = useApiQuery<{ rows: PaymentRow[] }>(`/api/control/payments?client=${id}&limit=10`);
   const [editing, setEditing] = useState(false);
+  const [branding, setBranding] = useState(false);
+  const [paying, setPaying] = useState(false);
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +88,10 @@ export default function ClientPage() {
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 px-5 pb-5 text-sm">
             <dt className="text-slate-500">Status</dt>
             <dd>{c.status === "Suspended" ? <Badge tone="red">Suspended</Badge> : isExpired(c) ? <Badge tone="red">Expired</Badge> : <Badge tone="green">Active</Badge>}</dd>
+            <dt className="text-slate-500">Plan</dt>
+            <dd>{c.plan ? <span className="font-medium text-slate-900">{c.plan.name}</span> : <span className="text-slate-500">Custom</span>} {c.trial && <Badge tone="violet"><Gift className="size-3" /> Free trial</Badge>}</dd>
             <dt className="text-slate-500">Valid until</dt><dd>{c.expiresAt ? formatDate(c.expiresAt) : "No expiry"}</dd>
+            <dt className="text-slate-500">Staff logins</dt><dd>{c.maxUsers || "Unlimited"}{typeof stats.users === "number" ? <span className="text-slate-500"> · {stats.users} in use</span> : null}</dd>
             <dt className="text-slate-500">Offline grace</dt><dd>{c.graceDays} days</dd>
             <dt className="text-slate-500">Licence key</dt>
             <dd className="flex items-center gap-2"><span className="font-mono">•••••-{c.keyLast4}</span><Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => setConfirm("regenerate-key")}><KeyRound className="size-3.5" /> New key</Button></dd>
@@ -113,6 +122,42 @@ export default function ClientPage() {
               <Button variant="secondary" onClick={() => setConfirm("reset-installation")}><RotateCcw className="size-4" /> Reset installation</Button>
               <p className="mt-1.5 text-xs text-slate-500">Deactivates the current computer so the key can be activated on a new one (e.g. after replacing the server PC).</p>
             </div>
+          )}
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader
+            title="Payments"
+            description={c.source ? `Came from: ${c.source}` : "Plan purchases and renewals of this hospital"}
+            actions={<Button onClick={() => setPaying(true)}><IndianRupee className="size-4" /> Record payment</Button>}
+          />
+          {payments.data && payments.data.rows.length > 0 ? (
+            <PaymentsTable rows={payments.data.rows} showClient={false} onChanged={() => { payments.reload(); q.reload(); }} />
+          ) : (
+            <p className="px-5 py-4 text-sm text-slate-500">No payments yet. The hospital can renew from its own app (Licence &amp; Sync → Renew), or record a payment you received here.</p>
+          )}
+        </Card>
+
+        <Card>
+          <CardHeader title="Branding" description="App name, logo, colour and letterhead for this hospital and its domain" actions={<Button variant="secondary" onClick={() => setBranding(true)}><Palette className="size-4" /> Edit</Button>} />
+          {c.branding ? (
+            <div className="flex items-start gap-4 px-5 pb-5 text-sm">
+              {c.branding.logo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={c.branding.logo} alt="" className="size-14 rounded-lg object-contain ring-1 ring-slate-200" />
+              ) : (
+                <div className="rounded-lg p-3 text-white" style={{ background: c.branding.color ?? "#16759a" }}><Hospital className="size-6" /></div>
+              )}
+              <div className="min-w-0 space-y-0.5">
+                <p className="font-medium text-slate-900">{c.branding.appName ?? "MediCare"}{c.branding.color && <span className="ml-2 inline-block size-3 rounded-full align-middle ring-1 ring-slate-300" style={{ background: c.branding.color }} />}</p>
+                {c.branding.tagline && <p className="text-slate-600">{c.branding.tagline}</p>}
+                {c.branding.address && <p className="whitespace-pre-line text-slate-600">{c.branding.address}</p>}
+                <p className="text-slate-500">{[c.branding.phone, c.branding.email, c.branding.website, c.branding.gstin && `GSTIN ${c.branding.gstin}`].filter(Boolean).join(" · ")}</p>
+                {c.brandingAt && <p className="text-xs text-slate-400">Updated {timeAgo(c.brandingAt)}{c.lastSeenAt && c.lastSeenAt > c.brandingAt ? " · delivered" : " · sent at next check-in"}</p>}
+              </div>
+            </div>
+          ) : (
+            <p className="px-5 pb-5 text-sm text-slate-500">Default look. Add the hospital&apos;s logo, colour and address so its app and printed bills carry its own name.</p>
           )}
         </Card>
 
@@ -176,6 +221,31 @@ export default function ClientPage() {
         </Card>
       </div>
 
+      {branding && (
+        <BrandingForm
+          name={c.name}
+          branding={c.branding}
+          onClose={() => setBranding(false)}
+          onSubmit={async (b) => {
+            await api(`/api/control/clients/${id}`, { method: "PATCH", body: { branding: b } });
+            toast("Branding saved — the hospital's app picks it up at its next check-in");
+            setBranding(false);
+            q.reload();
+          }}
+        />
+      )}
+      {paying && (
+        <RecordPaymentModal
+          client={c}
+          onClose={() => setPaying(false)}
+          onDone={(p) => {
+            toast(`Payment ${p.code} recorded — licence valid until ${formatDate(p.periodTo)}`);
+            setPaying(false);
+            payments.reload();
+            q.reload();
+          }}
+        />
+      )}
       {editing && (
         <ClientForm
           client={c}

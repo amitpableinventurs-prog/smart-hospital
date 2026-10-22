@@ -11,6 +11,7 @@ import { nextCode } from "@/models/Counter";
 import { Ledger, StockDoc } from "@/models/inventory";
 import { Purchase, Sale } from "@/models/pharmacy";
 import { getRecordModel } from "@/models/records";
+import { orgInfo } from "./org";
 
 type Doc = Record<string, unknown> & { _id: Types.ObjectId };
 
@@ -95,10 +96,11 @@ async function ledger(
 
 export function storeInfo() {
   return {
-    name: process.env.HOSPITAL_NAME || "MediCare Hospital Pharmacy",
-    address: process.env.HOSPITAL_ADDRESS || "",
-    phone: process.env.HOSPITAL_PHONE || "",
-    gstin: process.env.HOSPITAL_GSTIN || "",
+    name: orgInfo("MediCare Hospital Pharmacy").name,
+    address: orgInfo().address,
+    phone: orgInfo().phone,
+    gstin: orgInfo().gstin,
+    logo: orgInfo().logo,
     drugLicense: process.env.PHARMACY_DL_NO || "",
   };
 }

@@ -6,12 +6,13 @@ import mongoose from "mongoose";
 import { ApiError, clientIp, escapeRegex } from "./api";
 import { logActivity } from "./audit";
 import { appMode } from "./deployment";
-import type { LicencePayload } from "./licence-protocol";
+import { LEAD_SOURCES, type VendorInfo } from "./control-shared";
+import type { Branding, LicencePayload } from "./licence-protocol";
 import { isModuleKey, type ModuleKey } from "./modules";
 import type { SessionUser } from "./session";
 import { isObjectId } from "./validation";
 import { nextSerial } from "@/models/Counter";
-import { CLIENT_STATUSES, ControlClient } from "@/models/control";
+import { CLIENT_STATUSES, ControlClient, ControlLead, ControlPartner, ControlPlan } from "@/models/control";
 
 /**
  * Control Panel: issue licences to hospitals, change what they may use, and
@@ -19,14 +20,14 @@ import { CLIENT_STATUSES, ControlClient } from "@/models/control";
  * for the installation's side).
  */
 
-type ClientDocument = mongoose.HydratedDocument<mongoose.InferSchemaType<typeof ControlClient.schema>>;
+export type ClientDocument = mongoose.HydratedDocument<mongoose.InferSchemaType<typeof ControlClient.schema>>;
 
 const KEY_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const COLLECTION_RE = /^[a-z][a-z0-9_]{0,60}$/;
 const HOST_RE = /^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const MAX_DOCS = 2000;
 
-const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
+export const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 const EJSON = () => mongoose.mongo.BSON.EJSON;
 
 export function assertControl() {
@@ -34,24 +35,24 @@ export function assertControl() {
 }
 
 /** Licence keys: 4 × 5 characters, no look-alike letters. Compared without dashes or case. */
-function newLicenceKey() {
+export function newLicenceKey() {
   const bytes = randomBytes(20);
   const raw = [...bytes].map((b) => KEY_CHARS[b % KEY_CHARS.length]).join("");
   return raw.match(/.{5}/g)!.join("-");
 }
-const keyHash = (key: string) => sha256(String(key ?? "").toUpperCase().replace(/[^A-Z0-9]/g, ""));
+export const keyHash = (key: string) => sha256(String(key ?? "").toUpperCase().replace(/[^A-Z0-9]/g, ""));
 
-function fail(errors: Record<string, string>, message = "Please correct the highlighted fields"): never {
+export function fail(errors: Record<string, string>, message = "Please correct the highlighted fields"): never {
   throw new ApiError(422, message, errors);
 }
 
-function text(v: unknown, max: number) {
+export function text(v: unknown, max: number) {
   return typeof v === "string" ? v.trim().slice(0, max) : "";
 }
 
 /* ======================= clients (Control Panel screens) ======================= */
 
-function clientOut(c: Record<string, unknown>) {
+export function clientOut(c: Record<string, unknown>) {
   const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : null);
   return {
     id: String(c._id), code: c.code as string, name: c.name as string, contactName: c.contactName ?? null, contactPhone: c.contactPhone ?? null, contactEmail: c.contactEmail ?? null,
@@ -62,7 +63,23 @@ function clientOut(c: Record<string, unknown>) {
     installed: !!c.installationId, activatedAt: iso(c.activatedAt), activationHost: c.activationHost ?? null,
     lastSeenAt: iso(c.lastSeenAt), lastIp: c.lastIp ?? null, lastVersion: c.lastVersion ?? null, lastHost: c.lastHost ?? null, lastStats: c.lastStats ?? null,
     lastSyncAt: iso(c.lastSyncAt), synced: c.synced ?? {}, resyncRequestedAt: iso(c.resyncRequestedAt), createdAt: iso(c.createdAt),
+    plan: c.plan ? { id: String(c.plan), code: (c.planCode as string) ?? "", name: (c.planName as string) ?? "" } : null, trial: !!c.trial, maxUsers: (c.maxUsers as number) ?? 0,
+    branding: brandingOut(c.branding), brandingAt: iso(c.brandingAt), source: (c.source as string) ?? null,
+    partner: c.partner ? String(c.partner) : null, lead: c.lead ? String(c.lead) : null,
   };
+}
+
+export function brandingOut(b: unknown): Branding | null {
+  if (!b || typeof b !== "object") return null;
+  const g = (k: keyof Branding) => ((b as Record<string, unknown>)[k] as string) || null;
+  const out: Branding = { appName: g("appName"), tagline: g("tagline"), address: g("address"), phone: g("phone"), email: g("email"), website: g("website"), gstin: g("gstin"), color: g("color"), logo: g("logo"), printFooter: g("printFooter") };
+  return Object.values(out).some(Boolean) ? out : null;
+}
+
+/** The vendor's own details (VENDOR_* settings of the Control Panel server), for invoices and "contact your vendor". */
+export function vendorInfo(): VendorInfo {
+  const e = (k: string) => process.env[k]?.trim() || null;
+  return { name: e("VENDOR_NAME") ?? "Smart Hospital", address: e("VENDOR_ADDRESS"), phone: e("VENDOR_PHONE"), email: e("VENDOR_EMAIL"), website: e("VENDOR_WEBSITE"), gstin: e("VENDOR_GSTIN") };
 }
 
 export async function listClients(url: URL) {
@@ -76,7 +93,7 @@ export async function listClients(url: URL) {
   return rows.map((c) => clientOut(c as Record<string, unknown>));
 }
 
-async function loadClient(id: string) {
+export async function loadClient(id: string) {
   if (!isObjectId(id)) throw new ApiError(404, "Client not found");
   const c = (await ControlClient.findById(id)) as ClientDocument | null;
   if (!c) throw new ApiError(404, "Client not found");
@@ -134,28 +151,118 @@ function parseClient(body: Record<string, unknown>, partial: boolean) {
     if (target && isIP(target) !== 4 && !HOST_RE.test(target)) errors.dnsTarget = "Enter the server's public IPv4 address or a host name";
     set.dnsTarget = target || undefined;
   }
+  if (has("maxUsers")) {
+    const n = Number(body.maxUsers ?? 0);
+    if (!(Number.isInteger(n) && n >= 0 && n <= 10_000)) errors.maxUsers = "0 (unlimited) or more";
+    set.maxUsers = n;
+  }
+  if (has("source")) {
+    const src = text(body.source, 40);
+    if (src && !(LEAD_SOURCES as readonly string[]).includes(src)) errors.source = "Unknown source";
+    set.source = src || undefined;
+  }
+  for (const k of ["plan", "partner", "lead"] as const) {
+    if (!has(k)) continue;
+    const v = body[k];
+    if (v === "" || v === null || v === undefined) set[k] = undefined;
+    else if (isObjectId(v)) set[k] = v;
+    else errors[k] = "Invalid selection";
+  }
+  if ("branding" in body) {
+    const b = parseBranding(body.branding, errors);
+    if (b !== undefined) set.branding = b;
+  }
   if (Object.keys(errors).length) fail(errors);
   return set;
+}
+
+const COLOR_RE = /^#[0-9a-f]{6}$/i;
+const LOGO_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+const MAX_LOGO = 200_000;
+
+function parseBranding(raw: unknown, errors: Record<string, string>): Record<string, string> | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return {};
+  if (typeof raw !== "object") {
+    errors.branding = "Invalid branding";
+    return undefined;
+  }
+  const b = raw as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const [k, max] of [["appName", 40], ["tagline", 120], ["address", 300], ["phone", 40], ["email", 120], ["website", 120], ["gstin", 20], ["printFooter", 300]] as const) {
+    const v = text(b[k], max);
+    if (v) out[k] = v;
+  }
+  if (out.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) errors["branding.email"] = "Enter a valid email";
+  if (out.gstin) {
+    out.gstin = out.gstin.toUpperCase();
+    if (!/^[0-9A-Z]{15}$/.test(out.gstin)) errors["branding.gstin"] = "GSTIN has 15 letters and digits";
+  }
+  const color = text(b.color, 7);
+  if (color) {
+    if (COLOR_RE.test(color)) out.color = color.toLowerCase();
+    else errors["branding.color"] = "Pick a colour";
+  }
+  const logo = typeof b.logo === "string" ? b.logo : "";
+  if (logo) {
+    if (logo.length > MAX_LOGO || !LOGO_RE.test(logo)) errors["branding.logo"] = "Use a PNG/JPEG/WebP logo under 150 KB";
+    else out.logo = logo;
+  }
+  return out;
+}
+
+/** Plan / partner / lead references must exist; a newly chosen plan is copied by name and code. */
+async function resolveRefs(set: Record<string, unknown>, current?: ClientDocument) {
+  const errors: Record<string, string> = {};
+  if (set.plan !== undefined) {
+    if (String(set.plan) !== String(current?.plan ?? "")) {
+      const plan = await ControlPlan.findById(set.plan).select("code name trial").lean();
+      if (!plan) errors.plan = "Plan not found";
+      else Object.assign(set, { planCode: plan.code, planName: plan.name, trial: !!plan.trial });
+    }
+  } else if ("plan" in set) {
+    Object.assign(set, { planCode: undefined, planName: undefined, trial: false });
+  }
+  if (set.partner && !(await ControlPartner.exists({ _id: set.partner }))) errors.partner = "Partner not found";
+  if (set.lead && !(await ControlLead.exists({ _id: set.lead }))) errors.lead = "Lead not found";
+  if (Object.keys(errors).length) fail(errors);
 }
 
 export async function createClient(body: Record<string, unknown>, user: SessionUser, req: Request) {
   assertControl();
   const set = parseClient(body, false);
+  await resolveRefs(set);
+  if (brandingOut(set.branding)) set.brandingAt = new Date();
+  else delete set.branding;
+  const { c, licenceKey } = await insertClient(set, user.name);
+  await logActivity({ req, user, action: "create", module: "system", resource: "control_clients", entityId: String(c._id), entityLabel: c.code, summary: `Issued licence ${c.code} to ${c.name} (${(c.modules ?? []).length} module(s)${c.planName ? `, plan ${c.planName}` : ""})` });
+  return { client: clientOut(c.toObject() as Record<string, unknown>), licenceKey };
+}
+
+/** New client with its own code, database and licence key (shown once). */
+export async function insertClient(set: Record<string, unknown>, createdByName: string) {
   const code = `C${String(await nextSerial("CONTROL_CLIENT")).padStart(4, "0")}`;
   const licenceKey = newLicenceKey();
   // Each client's uploaded data goes to its own database next to this one.
   const dbName = `${mongoose.connection.name}_${code.toLowerCase()}`.slice(0, 60);
-  const c = await ControlClient.create({ ...set, code, dbName, keyHash: keyHash(licenceKey), keyLast4: licenceKey.slice(-4), createdByName: user.name });
-  await logActivity({ req, user, action: "create", module: "system", resource: "control_clients", entityId: String(c._id), entityLabel: code, summary: `Issued licence ${code} to ${c.name} (${(c.modules ?? []).length} module(s))` });
-  return { client: clientOut(c.toObject() as Record<string, unknown>), licenceKey };
+  const c = (await ControlClient.create({ ...set, code, dbName, keyHash: keyHash(licenceKey), keyLast4: licenceKey.slice(-4), createdByName })) as ClientDocument;
+  // Converting a lead: it now points to its client.
+  if (c.lead) await ControlLead.updateOne({ _id: c.lead, client: { $exists: false } }, { $set: { client: c._id } });
+  return { c, licenceKey };
 }
 
 export async function updateClient(id: string, body: Record<string, unknown>, user: SessionUser, req: Request) {
   assertControl();
   const c = await loadClient(id);
   const set = parseClient(body, true);
-  const changed = Object.keys(set).filter((k) => JSON.stringify(set[k] ?? null) !== JSON.stringify((c.get(k) as unknown) ?? null));
+  await resolveRefs(set, c);
+  const norm = (k: string, v: unknown) => (k === "branding" ? brandingOut(v) : v instanceof mongoose.Types.ObjectId ? String(v) : v);
+  const changed = Object.keys(set).filter((k) => JSON.stringify(norm(k, set[k]) ?? null) !== JSON.stringify(norm(k, c.get(k)) ?? null));
   if (!changed.length) return clientOut(c.toObject() as Record<string, unknown>);
+  if (changed.includes("branding")) {
+    set.brandingAt = new Date();
+    if (!brandingOut(set.branding)) set.branding = undefined;
+  }
   c.set(set);
   if (changed.includes("domain") || changed.includes("dnsTarget")) c.set("dnsCheck", undefined);
   await c.save();
@@ -227,13 +334,17 @@ export async function clientData(id: string) {
 
 /* ======================= installation API (/api/control/*) ======================= */
 
-function payload(c: ClientDocument | Record<string, unknown>): LicencePayload {
+/** `brandingAt`: the branding version the installation already has (branding is left out when it is current). */
+export function payload(c: ClientDocument | Record<string, unknown>, brandingAt?: string | null): LicencePayload {
   const g = (k: string) => (c as { get?: (k: string) => unknown }).get?.(k) ?? (c as Record<string, unknown>)[k];
   const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : null);
   return {
     clientCode: g("code") as string, hospitalName: g("name") as string, status: g("status") as LicencePayload["status"], modules: ((g("modules") as string[]) ?? []).filter(isModuleKey),
     expiresAt: iso(g("expiresAt")), graceDays: Number(g("graceDays") ?? 15), syncEnabled: g("syncEnabled") !== false, notice: (g("notice") as string) ?? null,
     domain: (g("domain") as string) ?? null, resyncRequestedAt: iso(g("resyncRequestedAt")), serverTime: new Date().toISOString(),
+    plan: g("planCode") ? { code: g("planCode") as string, name: (g("planName") as string) ?? "" } : null, trial: !!g("trial"), maxUsers: Number(g("maxUsers") ?? 0),
+    brandingAt: iso(g("brandingAt")), ...(brandingAt !== undefined && brandingAt === iso(g("brandingAt")) ? {} : { branding: brandingOut(g("branding")) }),
+    vendor: (({ name, phone, email, website }) => ({ name, phone, email, website }))(vendorInfo()),
   };
 }
 
@@ -250,15 +361,22 @@ export async function activateInstallation(body: Record<string, unknown>, req: R
   if (c.installationId && c.installationId !== installationId) {
     throw new ApiError(409, `This licence is already activated on another computer${c.activationHost ? ` (${c.activationHost})` : ""}. Ask your vendor to reset the installation.`);
   }
-  const installToken = randomBytes(32).toString("hex");
   const host = text(body.host, 120);
-  c.set({ installationId, installTokenHash: sha256(installToken), activatedAt: new Date(), activationHost: host || undefined, lastSeenAt: new Date(), lastIp: clientIp(req), lastVersion: text(body.version, 20) || undefined, lastHost: host || undefined });
-  await c.save();
+  const installToken = await bindInstallation(c, installationId, body, req);
   await logActivity({ req, user: null, actorEmail: `installation@${c.code}`, action: "create", module: "system", resource: "control_clients", entityId: String(c._id), entityLabel: c.code, summary: `${c.name} activated licence ${c.code} on ${host || "a new computer"}` });
   return { licence: payload(c), installToken };
 }
 
-async function authInstallation(req: Request) {
+/** Ties the licence to this installation; returns the token it authenticates with from now on. */
+export async function bindInstallation(c: ClientDocument, installationId: string, body: Record<string, unknown>, req: Request) {
+  const installToken = randomBytes(32).toString("hex");
+  const host = text(body.host, 120);
+  c.set({ installationId, installTokenHash: sha256(installToken), activatedAt: new Date(), activationHost: host || undefined, lastSeenAt: new Date(), lastIp: clientIp(req), lastVersion: text(body.version, 20) || undefined, lastHost: host || undefined });
+  await c.save();
+  return installToken;
+}
+
+export async function authInstallation(req: Request) {
   assertControl();
   const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   const c = /^[a-f0-9]{64}$/.test(token) ? ((await ControlClient.findOne({ installTokenHash: sha256(token) })) as ClientDocument | null) : null;
@@ -266,12 +384,12 @@ async function authInstallation(req: Request) {
   return c;
 }
 
-/** Periodic check-in: { version, host, stats } → current licence. */
+/** Periodic check-in: { version, host, stats, brandingAt } → current licence. */
 export async function heartbeat(body: Record<string, unknown>, req: Request) {
   const c = await authInstallation(req);
   const stats = body.stats && typeof body.stats === "object" ? Object.fromEntries(Object.entries(body.stats as Record<string, unknown>).filter(([, v]) => typeof v === "number" || typeof v === "string" || v === null).slice(0, 40)) : undefined;
   await ControlClient.updateOne({ _id: c._id }, { $set: { lastSeenAt: new Date(), lastIp: clientIp(req), lastVersion: text(body.version, 20) || c.lastVersion, lastHost: text(body.host, 120) || c.lastHost, ...(stats ? { lastStats: stats } : {}) } });
-  return payload(c);
+  return payload(c, typeof body.brandingAt === "string" || body.brandingAt === null ? (body.brandingAt as string | null) : undefined);
 }
 
 /**

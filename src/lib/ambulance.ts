@@ -12,6 +12,7 @@ import { isObjectId } from "./validation";
 import { ACTIVE_TRIP_STATUSES, BILLING_MODES, CREW_ROLES, TRIP_PRIORITIES, TRIP_STATUSES, Trip, type TripDoc } from "@/models/ambulance";
 import { nextCode } from "@/models/Counter";
 import { getRecordModel } from "@/models/records";
+import { orgInfo } from "./org";
 
 type Doc = Record<string, unknown> & { _id: Types.ObjectId };
 type TDoc = mongoose.HydratedDocument<TripDoc>;
@@ -305,7 +306,7 @@ export async function createTrip(body: Record<string, unknown>, user: SessionUse
   const trip = new Trip({
     code: "pending", tripType, priority, callerName: text(body.callerName, 120) || undefined, callerPhone, requestedAt, ...who,
     condition: text(body.condition, 500) || undefined, pickupLocation, pickupLandmark: text(body.pickupLandmark, 120) || undefined,
-    dropLocation: text(body.dropLocation, 200) || (body.toHospital !== false ? process.env.HOSPITAL_NAME || "MediCare Hospital" : undefined), toHospital: body.toHospital !== false, notes: text(body.notes, 500) || undefined,
+    dropLocation: text(body.dropLocation, 200) || (body.toHospital !== false ? orgInfo().name : undefined), toHospital: body.toHospital !== false, notes: text(body.notes, 500) || undefined,
     status: "Requested", createdBy: user.id, updatedBy: user.id, createdByName: user.name,
   }) as unknown as TDoc;
   event(trip, "Requested", user, `${tripType} · ${priority}${trip.condition ? ` · ${trip.condition}` : ""}`);
@@ -353,7 +354,7 @@ export async function getTrip(id: string) {
     tariff: trip.status === "Completed" || trip.status === "Cancelled" ? null : tariffOut(await tariffFor(trip.vehicleType, trip.tripType)),
     vehicleOdometer: vehicle ? Number(vehicle.odometer ?? 0) : null,
     night: trip.dispatchedAt ? isNight(trip.dispatchedAt) : isNight(trip.requestedAt),
-    hospital: { name: process.env.HOSPITAL_NAME || "MediCare Hospital", address: process.env.HOSPITAL_ADDRESS || "", phone: process.env.HOSPITAL_PHONE || "" },
+    hospital: (({ name, address, phone, logo }) => ({ name, address, phone, logo }))(orgInfo()),
     timings: {
       responseMin: minutesBetween(trip.requestedAt, trip.dispatchedAt),
       reachMin: minutesBetween(trip.dispatchedAt, trip.onSceneAt),

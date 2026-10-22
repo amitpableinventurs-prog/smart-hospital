@@ -77,14 +77,14 @@ declare global {
   }
 }
 
-class CheckoutClosed extends Error {
+export class CheckoutClosed extends Error {
   constructor() {
     super("Payment window closed — nothing was charged.");
   }
 }
 
 let loader: Promise<void> | null = null;
-function loadCheckout() {
+export function loadCheckout() {
   if (window.Razorpay) return Promise.resolve();
   loader ??= new Promise<void>((resolve, reject) => {
     const s = document.createElement("script");

@@ -9,6 +9,7 @@ import { isObjectId } from "./validation";
 import { nextCode } from "@/models/Counter";
 import { ATTENDANCE_MARKS, Attendance, PayrollRun, type PayrollRunDoc } from "@/models/hr";
 import { getRecordModel } from "@/models/records";
+import { orgInfo } from "./org";
 
 type Doc = Record<string, unknown> & { _id: Types.ObjectId };
 type RunDoc = mongoose.HydratedDocument<PayrollRunDoc>;
@@ -570,7 +571,7 @@ export async function listPayroll() {
 export async function getPayroll(id: string) {
   const run = await loadRun(id);
   const open = new Date(Date.UTC(Number(run.month.slice(0, 4)), Number(run.month.slice(5)), 1)) > todayUtc();
-  return { ...plainRun(run.toObject()), monthInProgress: open, hospital: { name: process.env.HOSPITAL_NAME || "MediCare Hospital", address: process.env.HOSPITAL_ADDRESS || "" } };
+  return { ...plainRun(run.toObject()), monthInProgress: open, hospital: (({ name, address, logo }) => ({ name, address, logo }))(orgInfo()) };
 }
 
 /** Build lines for every employee on the rolls during the month. Manual adjustments of a regenerated draft are kept. */
