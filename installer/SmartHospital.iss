@@ -62,7 +62,7 @@ Name: "{autodesktop}\Smart Hospital"; Filename: "{sys}\wscript.exe"; Parameters:
 Name: "{autoprograms}\Smart Hospital"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\bin\open-app.vbs"" ""{code:AppUrl}"""; IconFilename: "{app}\bin\app.ico"
 
 [Run]
-Filename: "{app}\runtime\node.exe"; Parameters: """{app}\bin\configure.mjs"" ""--control-url={#ControlUrl}"" ""--port={code:ServerPort}"" ""--domain={code:Domain}"""; StatusMsg: "Writing settings…"; Components: server; Flags: runhidden waituntilterminated
+Filename: "{app}\runtime\node.exe"; Parameters: """{app}\bin\configure.mjs"" ""--control-url={code:LicenceServer}"" ""--port={code:ServerPort}"" ""--domain={code:Domain}"""; StatusMsg: "Writing settings…"; Components: server; Flags: runhidden waituntilterminated
 Filename: "{app}\bin\services.cmd"; Parameters: "install"; StatusMsg: "Starting the database and server…"; Components: server; Flags: runhidden waituntilterminated
 Filename: "{sys}\wscript.exe"; Parameters: """{app}\bin\open-app.vbs"" ""{code:AppUrl}"""; Description: "Open Smart Hospital"; Flags: postinstall nowait skipifsilent
 
@@ -83,7 +83,9 @@ begin
     'Staff PCs open http://<this PC''s name or IP>:<port>. Leave the domain blank unless your vendor gave you one (for example his.cityhospital.com); it needs a DNS record pointing to this PC and ports 80/443 open.');
   ServerPage.Add('Port:', False);
   ServerPage.Add('Custom domain (optional):', False);
+  ServerPage.Add('Licence server (Control Panel) URL:', False);
   ServerPage.Values[0] := '3010';
+  ServerPage.Values[2] := '{#ControlUrl}';
 
   WorkstationPage := CreateInputQueryPage(wpSelectComponents, 'Hospital server', 'Which computer runs Smart Hospital?',
     'Enter the address of the hospital''s server PC, as your administrator gave it to you, for example 192.168.1.10:3010 or his.cityhospital.com.');
@@ -102,6 +104,14 @@ begin
   if PageID = WorkstationPage.ID then Result := IsServer;
 end;
 
+{ The Control Panel that activates, renews and suspends this installation's licence. }
+function LicenceServer(Param: String): String;
+begin
+  Result := Trim(ServerPage.Values[2]);
+  while (Length(Result) > 0) and (Result[Length(Result)] = '/') do
+    Delete(Result, Length(Result), 1);
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
   Port: Integer;
@@ -113,6 +123,11 @@ begin
     if (Port < 1024) or (Port > 65535) then
     begin
       MsgBox('Enter a port between 1024 and 65535.', mbError, MB_OK);
+      Result := False;
+    end
+    else if (Pos('http://', Lowercase(LicenceServer(''))) <> 1) and (Pos('https://', Lowercase(LicenceServer(''))) <> 1) then
+    begin
+      MsgBox('Enter the licence server address your vendor gave you, starting with https:// (activation and renewal are managed there).', mbError, MB_OK);
       Result := False;
     end;
   end;
