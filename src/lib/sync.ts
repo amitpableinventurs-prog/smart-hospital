@@ -102,6 +102,7 @@ async function doSync(): Promise<SyncSummary> {
   const lic = await Licence.findById("licence").select("+installToken").lean();
   if (!lic) return { skipped: "Not activated", collections: 0, sent: 0, errors: [], at };
   if (lic.status === "Deactivated") return { skipped: "Installation deactivated", collections: 0, sent: 0, errors: [], at };
+  if (lic.offline) return { skipped: "This installation uses an offline licence key; its data stays on this computer", collections: 0, sent: 0, errors: [], at };
   if (!lic.syncEnabled) return { skipped: "Upload is turned off by the vendor", collections: 0, sent: 0, errors: [], at };
   const db = mongoose.connection.db!;
   const names = (await db.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name).filter((n) => !n.startsWith("system.") && !LOCAL_ONLY_COLLECTIONS.includes(n)).sort();
@@ -109,7 +110,7 @@ async function doSync(): Promise<SyncSummary> {
   const summary: SyncSummary = { collections: 0, sent: 0, errors: [], at };
   for (const name of names) {
     try {
-      summary.sent += await syncCollection(db, name, lic.installToken);
+      summary.sent += await syncCollection(db, name, lic.installToken ?? "");
       summary.collections++;
     } catch (err) {
       const message = (err as Error).message;

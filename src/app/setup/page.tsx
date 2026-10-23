@@ -24,7 +24,7 @@ export default async function SetupPage() {
           <span className="text-lg font-semibold text-slate-900">MediCare</span>
         </div>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Activate this installation</h1>
-        <p className="mt-1 text-sm text-slate-500">Enter the licence key from your vendor, or start a free trial.</p>
+        <p className="mt-1 text-sm text-slate-500">{needs.controlUrl ? "Enter the licence key from your vendor, or start a free trial." : "Enter the licence key from your vendor."}</p>
         <SetupForm needsAdmin={needs.needsAdmin} controlUrl={needs.controlUrl} />
       </div>
     </div>

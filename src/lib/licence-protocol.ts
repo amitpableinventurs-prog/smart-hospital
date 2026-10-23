@@ -66,6 +66,8 @@ export interface LicenceView {
   plan: { code: string; name: string } | null;
   trial: boolean;
   maxUsers: number | null;
+  /** Activated with an offline key: renewed by entering a new key, never checks in. */
+  offline: boolean;
   vendor: LicencePayload["vendor"];
   /** App name, colour and whether a logo exists (the logo itself is served by /api/branding/logo). */
   brand: { appName: string; color: string | null; logoVersion: string | null };

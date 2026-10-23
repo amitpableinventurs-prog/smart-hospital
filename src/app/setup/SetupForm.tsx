@@ -18,7 +18,10 @@ export function SetupForm({ needsAdmin, controlUrl }: { needsAdmin: boolean; con
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<{ hospitalName: string; licenceKey?: string; trialEndsAt?: string | null; plan?: string | null } | null>(null);
   const [copied, setCopied] = useState(false);
-  const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement>) => setV((s) => ({ ...s, [k]: e.target.value }));
+  const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setV((s) => ({ ...s, [k]: e.target.value }));
+  // An offline key (SH1.…) is the signed licence itself: no licence server needed.
+  const offlineKey = mode === "key" && v.licenceKey.trim().startsWith("SH1.");
+  const canSubmit = !!controlUrl || offlineKey;
   const admin = needsAdmin ? { admin: { name: v.name, email: v.email, password: v.password } } : {};
 
   async function submit(e: React.FormEvent) {
@@ -74,21 +77,22 @@ export function SetupForm({ needsAdmin, controlUrl }: { needsAdmin: boolean; con
 
   return (
     <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
-      {!controlUrl && <Alert tone="amber">This installation has no licence server configured (CONTROL_URL). Reinstall with the setup from your vendor.</Alert>}
-      <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1" role="tablist">
+      {!controlUrl && <Alert tone="amber">This installation works without a licence server. Paste the offline licence key from your vendor (it starts with SH1.).</Alert>}
+      {controlUrl && <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1" role="tablist">
         {([["key", "I have a licence key", KeyRound], ["trial", "Start a free trial", Gift]] as const).map(([m, label, Icon]) => (
           <button key={m} type="button" role="tab" aria-selected={mode === m} onClick={() => { setMode(m); setError(null); setErrors({}); }}
             className={cx("inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium", mode === m ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900")}>
             <Icon className="size-4" /> {label}
           </button>
         ))}
-      </div>
+      </div>}
       {error && <Alert>{error}</Alert>}
       {mode === "key" ? (
         <Field label="Licence key" htmlFor="licenceKey" required error={errors.licenceKey}>
           <div className="relative">
-            <KeyRound className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden />
-            <input id="licenceKey" value={v.licenceKey} onChange={set("licenceKey")} placeholder="XXXXX-XXXXX-XXXXX-XXXXX" autoComplete="off" spellCheck={false} className={`${inputClass} pl-9 font-mono uppercase ${errorRing(errors.licenceKey)}`} />
+            <KeyRound className="pointer-events-none absolute left-3 top-3 size-4 text-slate-400" aria-hidden />
+            <textarea id="licenceKey" value={v.licenceKey} onChange={set("licenceKey")} placeholder={controlUrl ? "XXXXX-XXXXX-XXXXX-XXXXX  or an offline key SH1.…" : "SH1.…"} rows={offlineKey ? 5 : 1} autoComplete="off" spellCheck={false}
+              className={cx(inputClass, "resize-none pl-9 font-mono", offlineKey ? "break-all text-xs" : "uppercase placeholder:normal-case", errorRing(errors.licenceKey))} />
           </div>
         </Field>
       ) : (
@@ -113,8 +117,8 @@ export function SetupForm({ needsAdmin, controlUrl }: { needsAdmin: boolean; con
           {input("password", "Password", "admin.password", { required: true, type: "password", autoComplete: "new-password", hint: "At least 8 characters" })}
         </>
       )}
-      <Button type="submit" loading={busy} disabled={!controlUrl} className="w-full py-2.5">{busy ? (mode === "key" ? "Activating…" : "Starting trial…") : mode === "key" ? "Activate" : "Start free trial"}</Button>
-      <p className="text-center text-xs text-slate-500">Needs the internet once; after that the app also works offline.</p>
+      <Button type="submit" loading={busy} disabled={!canSubmit} className="w-full py-2.5">{busy ? (mode === "key" ? "Activating…" : "Starting trial…") : mode === "key" ? "Activate" : "Start free trial"}</Button>
+      <p className="text-center text-xs text-slate-500">{offlineKey || !controlUrl ? "An offline key needs no internet." : "Needs the internet once; after that the app also works offline."}</p>
     </form>
   );
 }

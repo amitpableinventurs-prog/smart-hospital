@@ -1,0 +1,9 @@
+{
+  "name": "smart-hospital-desktop",
+  "productName": "Smart Hospital",
+  "description": "Smart Hospital desktop app and Windows setup (packaged by scripts/build-windows.mjs)",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main.js",
+  "author": "Smart Hospital"
+}

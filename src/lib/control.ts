@@ -6,9 +6,10 @@ import mongoose from "mongoose";
 import { ApiError, clientIp, escapeRegex } from "./api";
 import { logActivity } from "./audit";
 import { appMode } from "./deployment";
-import { LEAD_SOURCES, type VendorInfo } from "./control-shared";
+import { KEY_VALIDITIES, LEAD_SOURCES, addLicenceMonths, type KeyValidity, type VendorInfo } from "./control-shared";
 import type { Branding, LicencePayload } from "./licence-protocol";
 import { isModuleKey, type ModuleKey } from "./modules";
+import { signOfflineKey } from "./offline-licence";
 import type { SessionUser } from "./session";
 import { isObjectId } from "./validation";
 import { nextSerial } from "@/models/Counter";
@@ -270,7 +271,7 @@ export async function updateClient(id: string, body: Record<string, unknown>, us
   return clientOut(c.toObject() as Record<string, unknown>);
 }
 
-/** { action: "regenerate-key" | "reset-installation" | "resync" | "check-dns" } */
+/** { action: "regenerate-key" | "offline-key" (+ plan?, validity?: "month" | "year" | "date" | "current", until?) | "reset-installation" | "resync" | "check-dns" } */
 export async function clientAction(id: string, body: Record<string, unknown>, user: SessionUser, req: Request) {
   assertControl();
   const c = await loadClient(id);
@@ -283,6 +284,39 @@ export async function clientAction(id: string, body: Record<string, unknown>, us
     await c.save();
     await log(`Issued a new licence key for ${c.code} ${c.name}; the old key no longer activates`);
     return { client: clientOut(c.toObject() as Record<string, unknown>), licenceKey };
+  }
+  if (action === "offline-key") {
+    // { plan?, validity?: "month" | "year" | "date" | "current", until? }: optionally put the client on a plan and
+    // set a new end date, then sign the licence as it stands — it activates any computer without the internet until it expires.
+    if (c.status === "Suspended") throw new ApiError(409, "Re-activate this client before issuing an offline key.");
+    const validity = String(body.validity ?? "current") as KeyValidity;
+    if (!(KEY_VALIDITIES as readonly string[]).includes(validity)) fail({ validity: "Choose how long the key is valid" });
+    const set: Record<string, unknown> = {};
+    if (body.plan) {
+      const plan = isObjectId(body.plan) ? await ControlPlan.findOne({ _id: body.plan, active: { $ne: false }, trial: { $ne: true } }).lean() : null;
+      if (!plan) fail({ plan: "Choose a plan" });
+      Object.assign(set, { plan: plan._id, planCode: plan.code, planName: plan.name, trial: false, modules: plan.modules, graceDays: plan.graceDays ?? 15, maxUsers: plan.maxUsers ?? 0 });
+    }
+    if (validity === "month" || validity === "year") {
+      set.expiresAt = addLicenceMonths(c.expiresAt, "trial" in set ? false : !!c.trial, validity === "year" ? 12 : 1);
+    } else if (validity === "date") {
+      const until = text(body.until, 10);
+      const to = /^\d{4}-\d{2}-\d{2}$/.test(until) ? new Date(`${until}T23:59:59.999Z`) : null;
+      if (!to || Number.isNaN(to.getTime()) || to.getTime() < Date.now()) fail({ until: "Enter a date after today" });
+      set.expiresAt = to;
+    } else if (c.expiresAt && c.expiresAt.getTime() < Date.now()) {
+      throw new ApiError(409, "This client's licence has expired. Choose Monthly, Yearly or a new end date for the key.");
+    }
+    if (Object.keys(set).length) {
+      // The Control Panel shows the same licence, and an online installation receives it at its next check-in.
+      c.set(set);
+      await c.save();
+    }
+    const p = payload(c);
+    const offlineKey = signOfflineKey({ code: p.clientCode, hospital: p.hospitalName, modules: p.modules, expiresAt: p.expiresAt, maxUsers: p.maxUsers, plan: p.plan, trial: p.trial });
+    const period = validity === "month" ? "monthly " : validity === "year" ? "yearly " : "";
+    await log(`Issued a ${period}offline licence key for ${c.code} ${c.name}${p.plan ? ` on ${p.plan.name}` : ""}, valid until ${p.expiresAt?.slice(0, 10) ?? "no expiry"}`);
+    return { client: clientOut(c.toObject() as Record<string, unknown>), offlineKey };
   }
   if (action === "reset-installation") {
     // The current installation's token stops working; the key can then be activated on another computer.

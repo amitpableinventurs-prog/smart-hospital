@@ -12,7 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Windows setup output (scripts/build-windows.mjs).
+    "dist/**",
   ]),
+  // Electron's main process and sandboxed preload are CommonJS.
+  { files: ["desktop/**/*.js"], rules: { "@typescript-eslint/no-require-imports": "off" } },
 ]);
 
 export default eslintConfig;

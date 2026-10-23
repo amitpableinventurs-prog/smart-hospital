@@ -1,11 +1,11 @@
 "use client";
 
-import { ArrowLeft, Ban, CheckCircle2, Database, Gift, Globe, Hospital, IndianRupee, KeyRound, Palette, Pencil, RefreshCw, RotateCcw, Server, XCircle } from "lucide-react";
+import { ArrowLeft, Ban, CheckCircle2, Database, Gift, Globe, Hospital, IndianRupee, KeyRound, Palette, Pencil, RefreshCw, RotateCcw, Server, WifiOff, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { BrandingForm } from "@/components/control/BrandingForm";
-import { ClientForm, LicenceKeyModal, isExpired, isOnline, type ClientRow } from "@/components/control/ClientForm";
+import { ClientForm, IssueOfflineKeyModal, LicenceKeyModal, OfflineKeyModal, isExpired, isOnline, type ClientRow } from "@/components/control/ClientForm";
 import { PaymentsTable, RecordPaymentModal } from "@/components/control/Payments";
 import { Alert, Badge, Button, Card, CardHeader, ConfirmDialog, ErrorState, PageHeader, Spinner, useToast } from "@/components/ui";
 import { api } from "@/lib/client";
@@ -29,6 +29,8 @@ export default function ClientPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [issuedKey, setIssuedKey] = useState<string | null>(null);
+  const [issuing, setIssuing] = useState(false);
+  const [offlineKey, setOfflineKey] = useState<{ key: string; expiresAt: string | null } | null>(null);
   const c = q.data ?? q.stale;
 
   async function run(action: string, success: string) {
@@ -95,6 +97,8 @@ export default function ClientPage() {
             <dt className="text-slate-500">Offline grace</dt><dd>{c.graceDays} days</dd>
             <dt className="text-slate-500">Licence key</dt>
             <dd className="flex items-center gap-2"><span className="font-mono">•••••-{c.keyLast4}</span><Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => setConfirm("regenerate-key")}><KeyRound className="size-3.5" /> New key</Button></dd>
+            <dt className="text-slate-500">Offline key</dt>
+            <dd><Button variant="ghost" className="-ml-2 px-2 py-1 text-xs" onClick={() => setIssuing(true)}><WifiOff className="size-3.5" /> Issue offline key</Button></dd>
             {c.notice && <><dt className="text-slate-500">Notice</dt><dd className="text-slate-700">{c.notice}</dd></>}
           </dl>
           <div className="border-t border-slate-100 px-5 py-4">
@@ -275,6 +279,19 @@ export default function ClientPage() {
         onClose={() => setConfirm(null)}
       />
       {issuedKey && <LicenceKeyModal name={c.name} licenceKey={issuedKey} onClose={() => setIssuedKey(null)} />}
+      {issuing && (
+        <IssueOfflineKeyModal
+          client={c}
+          onClose={() => setIssuing(false)}
+          onIssued={(res) => {
+            toast(`Offline key issued — valid until ${res.client.expiresAt ? formatDate(res.client.expiresAt) : "no end date"}`);
+            setIssuing(false);
+            setOfflineKey({ key: res.offlineKey, expiresAt: res.client.expiresAt });
+            q.reload();
+          }}
+        />
+      )}
+      {offlineKey && <OfflineKeyModal name={c.name} offlineKey={offlineKey.key} expiresAt={offlineKey.expiresAt} onClose={() => setOfflineKey(null)} />}
     </>
   );
 }

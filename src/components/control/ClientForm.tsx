@@ -1,12 +1,13 @@
 "use client";
 
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, WifiOff } from "lucide-react";
 import { useState } from "react";
 import { ModulePicker } from "../ModulePicker";
 import { Alert, Button, Field, Modal, errorRing, inputClass, omitKey } from "../ui";
 import { useSalesOptions } from "./Payments";
-import { ApiClientError } from "@/lib/client";
-import { LEAD_SOURCES, durationLabel } from "@/lib/control-shared";
+import { ApiClientError, api } from "@/lib/client";
+import { LEAD_SOURCES, addLicenceMonths, durationLabel, type KeyValidity } from "@/lib/control-shared";
+import { formatDate } from "@/lib/format";
 import type { Branding } from "@/lib/licence-protocol";
 import type { ModuleKey } from "@/lib/modules";
 
@@ -204,6 +205,100 @@ export function LicenceKeyModal({ name, licenceKey, onClose }: { name: string; l
         <li>On the hospital&apos;s server PC, run <b>SmartHospital-Setup.exe</b> and choose <b>Server</b>.</li>
         <li>When the app opens, enter this licence key and create the hospital&apos;s administrator.</li>
         <li>On other staff PCs, run the same setup and choose <b>Workstation</b> with the server&apos;s address.</li>
+      </ol>
+    </Modal>
+  );
+}
+
+const VALIDITY_LABELS: Record<KeyValidity, string> = { month: "Monthly — 1 month", year: "Yearly — 1 year", date: "Until a date I choose", current: "Keep the current end date" };
+
+/** Issue an offline key: optionally on a plan, valid for a month, a year or until a chosen date. */
+export function IssueOfflineKeyModal({ client: c, onClose, onIssued }: { client: ClientRow; onClose: () => void; onIssued: (res: { client: ClientRow; offlineKey: string }) => void }) {
+  const options = useSalesOptions();
+  const plans = (options.data?.plans ?? []).filter((p) => p.active && !p.trial);
+  const [v, setV] = useState<{ plan: string; validity: KeyValidity; until: string }>({ plan: "", validity: "year", until: "" });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const plan = plans.find((p) => p.id === v.plan);
+
+  function choosePlan(id: string) {
+    const p = plans.find((x) => x.id === id);
+    // A monthly plan suggests a monthly key, a yearly one a yearly key.
+    setV((s) => ({ ...s, plan: id, validity: p && (s.validity === "month" || s.validity === "year") ? (p.durationDays < 365 ? "month" : "year") : s.validity }));
+    setErrors((x) => omitKey(x, "plan"));
+  }
+
+  const trial = plan ? false : c.trial;
+  const until =
+    v.validity === "month" || v.validity === "year" ? addLicenceMonths(c.expiresAt, trial, v.validity === "year" ? 12 : 1).toISOString()
+    : v.validity === "date" ? (v.until ? `${v.until}T23:59:59.999Z` : null)
+    : c.expiresAt;
+  const extending = (v.validity === "month" || v.validity === "year") && !trial && !!c.expiresAt && new Date(c.expiresAt) > new Date();
+  const expired = v.validity === "current" && !!c.expiresAt && new Date(c.expiresAt) < new Date();
+  const modules = plan ? plan.modules.length : c.modules.length;
+  const users = plan ? plan.maxUsers : c.maxUsers;
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+    try {
+      const { data } = await api<{ client: ClientRow; offlineKey: string }>(`/api/control/clients/${c.id}/action`, { method: "POST", body: { action: "offline-key", plan: v.plan || undefined, validity: v.validity, until: v.validity === "date" ? v.until : undefined } });
+      onIssued(data);
+    } catch (e) {
+      setError((e as Error).message);
+      if (e instanceof ApiClientError && e.fields) setErrors(e.fields);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} size="md" title={`Offline licence key · ${c.name}`} description="Activates or renews the hospital's app without the internet. A key cannot be suspended or changed once given out — only replaced by a newer one."
+      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button><Button onClick={submit} loading={busy} disabled={expired || (v.validity === "date" && !v.until)}><WifiOff className="size-4" /> Issue key</Button></>}>
+      <div className="space-y-4">
+        {error && <Alert>{error}</Alert>}
+        <Field label="Plan" htmlFor="ok-plan" hint={plan ? `Sets ${plan.modules.length} module(s), ${plan.maxUsers || "unlimited"} login(s) and ${plan.graceDays} days offline grace` : "The client's current modules and logins"} error={errors.plan}>
+          <select id="ok-plan" value={v.plan} onChange={(e) => choosePlan(e.target.value)} className={`${inputClass} ${errorRing(errors.plan)}`}>
+            <option value="">Keep current{c.plan && !c.trial ? ` (${c.plan.name})` : ""}</option>
+            {plans.map((p) => <option key={p.id} value={p.id}>{p.name} · {durationLabel(p.durationDays)}</option>)}
+          </select>
+        </Field>
+        <Field label="Valid for" htmlFor="ok-validity" required error={errors.validity}>
+          <select id="ok-validity" value={v.validity} onChange={(e) => setV((s) => ({ ...s, validity: e.target.value as KeyValidity }))} className={inputClass}>
+            {(Object.keys(VALIDITY_LABELS) as KeyValidity[]).map((k) => <option key={k} value={k}>{VALIDITY_LABELS[k]}</option>)}
+          </select>
+        </Field>
+        {v.validity === "date" && (
+          <Field label="Valid until" htmlFor="ok-until" required error={errors.until}>
+            <input id="ok-until" type="date" value={v.until} min={new Date().toISOString().slice(0, 10)} onChange={(e) => { setV((s) => ({ ...s, until: e.target.value })); setErrors((x) => omitKey(x, "until")); }} className={`${inputClass} ${errorRing(errors.until)}`} />
+          </Field>
+        )}
+        {expired ? (
+          <Alert tone="amber">The current licence ended on {formatDate(c.expiresAt)}. Choose Monthly, Yearly or a new date.</Alert>
+        ) : (
+          <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-700 ring-1 ring-slate-200">
+            <p>Valid until <b className="text-slate-900">{until ? formatDate(until) : v.validity === "date" ? "—" : "no end date"}</b>{extending ? " (added to the current end date)" : ""}</p>
+            <p className="mt-0.5 text-xs text-slate-500">{modules} module(s) · {users || "unlimited"} login(s){plan ? ` · ${plan.name}` : c.plan ? ` · ${c.plan.name}` : ""}. The client&apos;s licence here is updated to match.</p>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/** A signed offline licence key: activates any computer without the internet until it expires. */
+export function OfflineKeyModal({ name, offlineKey, expiresAt, onClose }: { name: string; offlineKey: string; expiresAt: string | null; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Modal open onClose={onClose} size="md" title={`Offline licence key for ${name}`} description={`Works on any computer without the internet, ${expiresAt ? `until ${expiresAt.slice(0, 10)}` : "with no expiry"}. It cannot be suspended once given out — issue keys that expire.`} footer={<Button onClick={onClose}>Done</Button>}>
+      <textarea readOnly value={offlineKey} rows={6} onFocus={(e) => e.currentTarget.select()} className={`${inputClass} break-all font-mono text-xs`} aria-label="Offline licence key" />
+      <Button variant="secondary" className="mt-2" onClick={() => navigator.clipboard?.writeText(offlineKey).then(() => setCopied(true))}>
+        {copied ? <Check className="size-4" /> : <Copy className="size-4" />} {copied ? "Copied" : "Copy key"}
+      </Button>
+      <ol className="mt-4 list-decimal space-y-1 pl-5 text-sm text-slate-600">
+        <li>New installation: run <b>SmartHospital-Setup.exe</b>, choose <b>Server</b>, and paste this key when the app opens.</li>
+        <li>Renewal: the hospital&apos;s super admin pastes it under <b>Licence &amp; Sync → Enter licence key</b> (also on the lock screen).</li>
+        <li>Changed modules, logins or the end date? Edit the client, then issue a new offline key.</li>
       </ol>
     </Modal>
   );

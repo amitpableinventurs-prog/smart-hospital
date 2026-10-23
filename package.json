@@ -10,7 +10,8 @@
     "create-super-admin": "node --env-file=.env.local scripts/create-super-admin.mjs",
     "typecheck": "tsc --noEmit",
     "create-demo-admins": "node --env-file=.env.local scripts/create-demo-admins.mjs",
-    "build:windows": "node scripts/build-windows.mjs"
+    "build:windows": "node scripts/build-windows.mjs",
+    "licence-key": "node scripts/licence-key.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -27,6 +28,8 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
     "tailwindcss": "^4",

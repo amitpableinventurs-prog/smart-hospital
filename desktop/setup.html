@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:">
+<title>Smart Hospital</title>
+<style>
+  :root { --brand: #16759a; --brand-dark: #0f5d7b; --text: #0f172a; --muted: #64748b; --line: #e2e8f0; --bg: #f8fafc; --red: #b91c1c; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+  main { width: 100%; max-width: 560px; padding: 32px 24px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 600; margin-bottom: 24px; }
+  .logo img { width: 36px; height: 36px; }
+  h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  p { margin: 0 0 12px; color: var(--muted); }
+  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 20px 0; }
+  .choice { text-align: left; border: 1px solid var(--line); background: #fff; border-radius: 12px; padding: 16px; cursor: pointer; font: inherit; color: inherit; }
+  .choice:hover { border-color: var(--brand); }
+  .choice[aria-pressed="true"] { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand) inset; }
+  .choice b { display: block; font-size: 15px; margin-bottom: 4px; }
+  .choice span { color: var(--muted); font-size: 13px; }
+  form { display: none; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  form.on { display: block; }
+  label { display: block; font-weight: 500; margin: 14px 0 6px; }
+  label:first-child { margin-top: 0; }
+  input { width: 100%; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; }
+  input:focus { outline: 2px solid var(--brand); outline-offset: -1px; border-color: transparent; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  button.primary, button.secondary { margin-top: 18px; padding: 10px 16px; border-radius: 8px; font: inherit; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+  button.primary { background: var(--brand); color: #fff; width: 100%; }
+  button.primary:hover { background: var(--brand-dark); }
+  button.secondary { background: #fff; border-color: #cbd5e1; color: var(--text); }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .row button { width: auto; }
+  .error { display: none; background: #fef2f2; color: var(--red); border: 1px solid #fecaca; border-radius: 8px; padding: 10px 12px; margin-top: 14px; }
+  .error.on { display: block; }
+  .page { display: none; }
+  .page.on { display: block; }
+  .center { text-align: center; }
+  .spinner { width: 36px; height: 36px; border: 3px solid var(--line); border-top-color: var(--brand); border-radius: 50%; margin: 8px auto 20px; animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  code { background: #f1f5f9; padding: 1px 6px; border-radius: 4px; font-size: 13px; }
+  a.link { color: var(--brand); cursor: pointer; text-decoration: underline; }
+</style>
+</head>
+<body>
+<main>
+  <div class="logo"><img src="icon.png" alt=""> Smart Hospital</div>
+
+  <section class="page" id="page-setup">
+    <h1>Set up this computer</h1>
+    <p>Choose <b>Server</b> on one PC of the hospital — it keeps all the data. Choose <b>Workstation</b> on every other staff PC.</p>
+    <div class="choices">
+      <button type="button" class="choice" data-mode="server" aria-pressed="false"><b>Server</b><span>This PC keeps the hospital's data. Install on one PC only.</span></button>
+      <button type="button" class="choice" data-mode="workstation" aria-pressed="false"><b>Workstation</b><span>Open the hospital's server from this PC.</span></button>
+    </div>
+
+    <form id="form-server" novalidate>
+      <label for="port">Port</label>
+      <input id="port" inputmode="numeric" value="3010">
+      <div class="hint">Staff PCs open <code>http://<span id="pc-name">this-pc</span>:<span id="port-echo">3010</span></code>. Keep 3010 unless your vendor says otherwise.</div>
+      <label for="domain">Custom domain (optional)</label>
+      <input id="domain" placeholder="his.cityhospital.com" autocomplete="off" spellcheck="false">
+      <div class="hint">Leave blank unless your vendor gave you one.</div>
+      <label for="control">Licence server (optional)</label>
+      <input id="control" placeholder="https://control.yourvendor.com" autocomplete="off" spellcheck="false">
+      <div class="hint">Leave blank to activate with an <b>offline licence key</b> — no internet needed.</div>
+      <div class="error" id="server-error"></div>
+      <button type="submit" class="primary" id="server-go">Set up server</button>
+      <div class="hint" style="text-align:center;margin-top:8px">Windows asks for administrator permission once.</div>
+    </form>
+
+    <form id="form-workstation" novalidate>
+      <label for="address">Server address</label>
+      <input id="address" placeholder="192.168.1.10:3010" autocomplete="off" spellcheck="false">
+      <div class="hint">As your administrator gave it to you, e.g. <code>192.168.1.10</code>, <code>server-pc:3010</code> or <code>his.cityhospital.com</code>.</div>
+      <div class="error" id="ws-error"></div>
+      <div class="row">
+        <button type="submit" class="primary" id="ws-go" style="flex:1">Connect</button>
+        <button type="button" class="secondary" id="ws-force" hidden>Save anyway</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="page center" id="page-loading">
+    <div class="spinner"></div>
+    <h1 id="loading-title">Starting Smart Hospital…</h1>
+    <p id="loading-text"></p>
+  </section>
+
+  <section class="page" id="page-error">
+    <h1>Smart Hospital is not reachable</h1>
+    <p id="error-text"></p>
+    <p id="error-reason" style="font-size:12px"></p>
+    <div class="error" id="error-action"></div>
+    <div class="row">
+      <button type="button" class="primary" id="retry">Try again</button>
+      <button type="button" class="secondary" id="restart" hidden>Restart server</button>
+      <button type="button" class="secondary" id="change">Connection settings</button>
+    </div>
+  </section>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const q = new URLSearchParams(location.search);
+  const page = q.get("page") || "setup";
+  $("page-" + page).classList.add("on");
+
+  const busy = (btn, on, label) => { btn.disabled = on; if (label) btn.textContent = label; };
+  const showError = (el, msg) => { el.textContent = msg || ""; el.classList.toggle("on", !!msg); };
+
+  if (page === "loading") {
+    const server = q.get("mode") === "server";
+    $("loading-text").textContent = server ? "Waiting for the database and server on this PC. This can take a minute after the PC starts." : `Connecting to ${q.get("url")}…`;
+  }
+
+  if (page === "error") {
+    const server = q.get("mode") === "server";
+    $("error-text").textContent = server
+      ? `The server on this PC (${q.get("url")}) did not start. Restart it below; if that does not help, restart the PC.`
+      : `Could not reach the hospital's server at ${q.get("url")}. Check that the server PC is on and that this PC is on the same network.`;
+    $("error-reason").textContent = q.get("reason") ? `Details: ${q.get("reason")}` : "";
+    $("restart").hidden = !server;
+    $("retry").onclick = () => window.desktop.retry();
+    $("change").onclick = () => window.desktop.settings();
+    $("restart").onclick = async () => {
+      busy($("restart"), true, "Restarting…");
+      const r = await window.desktop.restartServer();
+      if (r?.error) { showError($("error-action"), r.error); busy($("restart"), false, "Restart server"); }
+    };
+  }
+
+  if (page === "setup") {
+    const forms = { server: $("form-server"), workstation: $("form-workstation") };
+    const pick = (mode) => {
+      document.querySelectorAll(".choice").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
+      for (const [m, f] of Object.entries(forms)) f.classList.toggle("on", m === mode);
+      (mode === "server" ? $("port") : $("address")).focus();
+    };
+    document.querySelectorAll(".choice").forEach((b) => (b.onclick = () => pick(b.dataset.mode)));
+    $("port").oninput = () => ($("port-echo").textContent = $("port").value || "3010");
+
+    window.desktop.info().then((info) => {
+      $("pc-name").textContent = info.host;
+      if (info.server) {
+        $("port").value = info.server.port;
+        $("domain").value = info.server.domain;
+        $("control").value = info.server.controlUrl;
+        $("port-echo").textContent = info.server.port;
+      } else {
+        $("control").value = info.controlUrl || "";
+      }
+      if (info.workstationUrl) $("address").value = info.workstationUrl.replace(/^http:\/\//, "");
+      if (q.get("change")) pick(info.workstationUrl ? "workstation" : info.server ? "server" : "server");
+    });
+
+    forms.server.onsubmit = async (e) => {
+      e.preventDefault();
+      showError($("server-error"), "");
+      busy($("server-go"), true, "Setting up… (this takes a minute)");
+      const r = await window.desktop.setupServer({ port: $("port").value, domain: $("domain").value, controlUrl: $("control").value });
+      if (r?.error) { showError($("server-error"), r.error); busy($("server-go"), false, "Set up server"); }
+    };
+
+    const connect = async (force) => {
+      showError($("ws-error"), "");
+      busy($("ws-go"), true, "Connecting…");
+      const r = await window.desktop.setupWorkstation({ address: $("address").value, force });
+      if (r?.error) {
+        showError($("ws-error"), r.error);
+        $("ws-force").hidden = !r.unreachable;
+        busy($("ws-go"), false, "Connect");
+      }
+    };
+    forms.workstation.onsubmit = (e) => { e.preventDefault(); connect(false); };
+    $("ws-force").onclick = () => connect(true);
+  }
+</script>
+</body>
+</html>

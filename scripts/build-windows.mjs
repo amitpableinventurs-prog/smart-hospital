@@ -1,17 +1,20 @@
 /**
- * Builds the Windows setup (SmartHospital-Setup-<version>.exe) for client installations.
+ * Builds the Windows setup (SmartHospital-Setup-<version>.exe) for client installations:
+ * the Electron desktop app (desktop/) with the server, database and Node.js bundled, so a
+ * hospital runs fully offline. Activate it with an offline licence key (npm run licence-key)
+ * or, when a licence server is given, online.
  *
- *   npm run build:windows -- --control-url=https://control.yourcompany.com
+ *   npm run build:windows [-- --control-url=https://control.yourcompany.com]
  *
  * Options:
  *   --control-url=URL   your Control Panel (APP_MODE=control) — optional; pre-fills the licence server
- *                       field, which the setup asks for on every server install
+ *                       on the server setup screen. Leave it out for offline-key-only setups.
  *   --mongo-bin=DIR     MongoDB server binaries to bundle (default: newest under C:\Program Files\MongoDB\Server)
  *   --skip-build        reuse the last standalone build in .next/standalone
+ *   --inno              compile the older Inno Setup installer (installer/SmartHospital.iss) instead
  *
- * Output: dist/windows/stage (everything the setup installs) and, when Inno Setup 6 is installed,
- * dist/SmartHospital-Setup-<version>.exe. Optional: put caddy.exe in installer/vendor/ to enable
- * automatic HTTPS for clients with a custom domain.
+ * Output: dist/windows/stage (everything the setup installs) and dist/SmartHospital-Setup-<version>.exe.
+ * Optional: put caddy.exe in installer/vendor/ to enable automatic HTTPS for clients with a custom domain.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -27,8 +30,12 @@ const args = Object.fromEntries(
 );
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 const controlUrl = String(args["control-url"] ?? "").replace(/\/+$/, "");
-if (!/^https?:\/\/[^\s"]+$/.test(controlUrl)) {
-  console.error("Pass your Control Panel's address: --control-url=https://control.yourcompany.com");
+if (controlUrl && !/^https?:\/\/[^\s"]+$/.test(controlUrl)) {
+  console.error("--control-url must be your Control Panel's address, e.g. https://control.yourcompany.com");
+  process.exit(1);
+}
+if (!/LICENCE_PUBLIC_KEY = "[A-Za-z0-9+/=]{40,}"/.test(fs.readFileSync(path.join(root, "src", "lib", "licence-public-key.ts"), "utf8"))) {
+  console.error("No offline licence signing key yet. Run: npm run licence-key -- init");
   process.exit(1);
 }
 
@@ -81,6 +88,45 @@ fs.copyFileSync(path.join(root, "src", "app", "favicon.ico"), path.join(stage, "
 console.log(`  app ${pkg.version}, Node ${process.version}, MongoDB from ${mongoBin}${fs.existsSync(caddy) ? ", Caddy (HTTPS)" : ""}`);
 
 // 3. Compile the setup
+if (!args.inno) {
+  step("Packaging the desktop app and setup (electron-builder)…");
+  const { build, Platform, Arch } = await import("electron-builder");
+  const electronVersion = JSON.parse(fs.readFileSync(path.join(root, "node_modules", "electron", "package.json"), "utf8")).version;
+  await build({
+    targets: Platform.WINDOWS.createTarget("nsis", Arch.x64),
+    projectDir: path.join(root, "desktop"),
+    config: {
+      appId: "com.smarthospital.desktop",
+      productName: "Smart Hospital",
+      executableName: "SmartHospital",
+      electronVersion,
+      npmRebuild: false,
+      directories: { output: path.join(dist, "electron") },
+      files: ["main.js", "preload.js", "setup.html", "icon.png", "package.json"],
+      extraMetadata: { version: pkg.version, smartHospital: { controlUrl } },
+      // The bundled server, copied as is (electron-builder's file filters would drop parts of node_modules).
+      afterPack: async (ctx) => copy(stage, path.join(ctx.appOutDir, "resources", "sh")),
+      win: { icon: path.join(root, "desktop", "icon.png") },
+      nsis: {
+        oneClick: false,
+        perMachine: true,
+        allowToChangeInstallationDirectory: true,
+        createDesktopShortcut: "always",
+        createStartMenuShortcut: true,
+        shortcutName: "Smart Hospital",
+        runAfterFinish: true,
+        deleteAppDataOnUninstall: false,
+        include: path.join(root, "desktop", "installer.nsh"),
+        artifactName: "SmartHospital-Setup-${version}.${ext}",
+      },
+    },
+  });
+  const exe = path.join(dist, `SmartHospital-Setup-${pkg.version}.exe`);
+  fs.copyFileSync(path.join(dist, "electron", `SmartHospital-Setup-${pkg.version}.exe`), exe);
+  console.log(`
+✓ ${exe} (${Math.round(fs.statSync(exe).size / 1_048_576)} MB)`);
+  process.exit(0);
+}
 const iscc = ["C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe", "C:\\Program Files\\Inno Setup 6\\ISCC.exe", path.join(process.env.LOCALAPPDATA ?? "", "Programs", "Inno Setup 6", "ISCC.exe")].find((p) => fs.existsSync(p));
 if (!iscc) {
   console.log("\nInno Setup 6 is not installed, so the .exe was not compiled. Install it from https://jrsoftware.org/isdl.php and run again with --skip-build.");

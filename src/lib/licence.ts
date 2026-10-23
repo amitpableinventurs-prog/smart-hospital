@@ -9,6 +9,7 @@ import { connectDB } from "./db";
 import { APP_VERSION, appMode, controlUrl } from "./deployment";
 import type { Branding, LicencePayload, LicenceView, RenewalInfo, RenewalOrder } from "./licence-protocol";
 import { isModuleKey } from "./modules";
+import { isOfflineKey, verifyOfflineKey } from "./offline-licence";
 import { setOrgBranding } from "./org";
 import type { SessionUser } from "./session";
 import { resetSync, runSync } from "./sync";
@@ -38,7 +39,7 @@ const APP_NAME = "MediCare";
 
 const unlicensed = (mode: LicenceView["mode"]): LicenceView => ({
   mode, hospitalName: process.env.HOSPITAL_NAME || null, clientCode: null, locked: null, modules: null, notice: null, expiresAt: null, lastCheckAt: null,
-  offlineDaysLeft: null, offlineDays: null, expiresInDays: null, lastError: null, plan: null, trial: false, maxUsers: null, vendor: null,
+  offlineDaysLeft: null, offlineDays: null, expiresInDays: null, lastError: null, plan: null, trial: false, maxUsers: null, offline: false, vendor: null,
   brand: { appName: APP_NAME, color: null, logoVersion: null },
 });
 
@@ -46,12 +47,18 @@ const brandingOf = (lic: { branding?: unknown } | null) => (lic?.branding && typ
 
 function viewOf(lic: (LicenceDoc & { lastCheckAt?: Date | null }) | null): LicenceView {
   if (!lic) return { ...unlicensed("client"), hospitalName: null, locked: { reason: "not_activated", message: "This installation has not been activated yet." } };
-  const now = Date.now();
+  const offline = !!lic.offline;
+  // An offline licence never checks the time with the server: never count from before the latest time seen.
+  const now = offline ? Math.max(Date.now(), lic.clockAt?.getTime() ?? 0) : Date.now();
   const lastCheck = lic.lastCheckAt ?? lic.activatedAt ?? null;
-  const offlineDays = lastCheck ? (now - lastCheck.getTime()) / DAY : Infinity;
+  const offlineDays = offline ? 0 : lastCheck ? (now - lastCheck.getTime()) / DAY : Infinity;
   const graceDays = lic.graceDays ?? 15;
   let locked: LicenceView["locked"] = null;
-  if (lic.status === "Deactivated") locked = { reason: "deactivated", message: "This installation was deactivated by your vendor. Activate it again with a licence key." };
+  if (offline) {
+    if (lic.expiresAt && lic.expiresAt.getTime() < now) {
+      locked = { reason: "expired", message: `Your ${lic.trial ? "trial " : ""}licence key expired on ${lic.expiresAt.toISOString().slice(0, 10)}. Enter a new key from your vendor to continue — your data is kept.` };
+    }
+  } else if (lic.status === "Deactivated") locked = { reason: "deactivated", message: "This installation was deactivated by your vendor. Activate it again with a licence key." };
   else if (lic.status === "Suspended") locked = { reason: "suspended", message: lic.notice || "Your licence is suspended. Please contact your vendor." };
   else if (lic.expiresAt && lic.expiresAt.getTime() < now) {
     locked = lic.trial
@@ -62,9 +69,9 @@ function viewOf(lic: (LicenceDoc & { lastCheckAt?: Date | null }) | null): Licen
   return {
     mode: "client", hospitalName: lic.hospitalName, clientCode: lic.clientCode, locked, modules: (lic.modules ?? []).filter(isModuleKey), notice: lic.notice ?? null,
     expiresAt: lic.expiresAt?.toISOString() ?? null, lastCheckAt: lastCheck?.toISOString() ?? null,
-    offlineDaysLeft: Number.isFinite(offlineDays) ? Math.max(0, Math.ceil(graceDays - offlineDays)) : 0, offlineDays: Number.isFinite(offlineDays) ? Math.floor(offlineDays) : null,
+    offlineDaysLeft: offline ? null : Number.isFinite(offlineDays) ? Math.max(0, Math.ceil(graceDays - offlineDays)) : 0, offlineDays: offline ? null : Number.isFinite(offlineDays) ? Math.floor(offlineDays) : null,
     expiresInDays: lic.expiresAt ? Math.ceil((lic.expiresAt.getTime() - now) / DAY) : null, lastError: lic.lastError ?? null,
-    plan: lic.planCode ? { code: lic.planCode, name: lic.planName ?? lic.planCode } : null, trial: !!lic.trial, maxUsers: lic.maxUsers ?? 0,
+    plan: lic.planCode ? { code: lic.planCode, name: lic.planName ?? lic.planCode } : null, trial: !!lic.trial, maxUsers: lic.maxUsers ?? 0, offline,
     vendor: (lic.vendor as LicenceView["vendor"]) ?? null,
     brand: { appName: brandingOf(lic)?.appName || APP_NAME, color: brandingOf(lic)?.color ?? null, logoVersion: brandingOf(lic)?.logo ? (lic.brandingAt?.toISOString() ?? "1") : null },
   };
@@ -79,6 +86,10 @@ export async function licenceView(): Promise<LicenceView> {
   await connectDB();
   startClientJobs();
   const lic = await Licence.findById("licence").lean();
+  if (lic?.offline && Date.now() - (lic.clockAt?.getTime() ?? 0) > 3_600_000) {
+    lic.clockAt = new Date();
+    await Licence.updateOne({ _id: "licence", $or: [{ clockAt: null }, { clockAt: { $lt: lic.clockAt } }] }, { clockAt: lic.clockAt });
+  }
   const view = viewOf(lic);
   setOrgBranding(lic?.hospitalName ?? null, brandingOf(lic), lic?.brandingAt?.toISOString() ?? null);
   globalThis.__licenceView = { at: Date.now(), view };
@@ -144,10 +155,15 @@ export function checkIn() {
     await connectDB();
     const lic = await Licence.findById("licence").select("+installToken");
     if (!lic) return { ok: false, error: "Not activated" };
+    // Nothing to ask the Control Panel: the key itself is the licence.
+    if (lic.offline) {
+      forgetView();
+      return { ok: true };
+    }
     let result: { ok: boolean; error?: string } = { ok: true };
     let resync = false;
     try {
-      const payload = (await callControl("/api/control/heartbeat", { version: APP_VERSION, host: os.hostname(), stats: await localStats(), brandingAt: lic.branding ? (lic.brandingAt?.toISOString() ?? null) : null }, lic.installToken)) as LicencePayload;
+      const payload = (await callControl("/api/control/heartbeat", { version: APP_VERSION, host: os.hostname(), stats: await localStats(), brandingAt: lic.branding ? (lic.brandingAt?.toISOString() ?? null) : null }, lic.installToken ?? undefined)) as LicencePayload;
       resync = apply(lic, payload);
       lic.lastCheckAt = new Date();
       lic.lastError = undefined;
@@ -203,6 +219,7 @@ export async function activationNeeds() {
 /**
  * { licenceKey, admin?: { name, email, password } } — binds this computer to
  * the licence. Needs the internet once; afterwards the app runs offline.
+ * An offline key (SH1.…) activates without the internet at all.
  */
 export async function activate(body: Record<string, unknown>, req: Request) {
   if (appMode() !== "client") throw new ApiError(404, "Not a client installation");
@@ -215,8 +232,38 @@ export async function activate(body: Record<string, unknown>, req: Request) {
   if (Object.keys(errors).length) throw new ApiError(422, Object.values(errors)[0], errors);
 
   const installationId = await installationIdOf();
+  if (isOfflineKey(licenceKey)) return finishActivation(offlineData(licenceKey), installationId, needs.needsAdmin ? { name, email, password } : null, req, "Activated offline licence key");
   const data = (await callControl("/api/control/activate", { licenceKey, installationId, host: os.hostname(), version: APP_VERSION })) as { licence: LicencePayload; installToken: string };
   return finishActivation(data, installationId, needs.needsAdmin ? { name, email, password } : null, req, "Activated licence");
+}
+
+/** The licence in an offline key, shaped like an activation by the Control Panel. */
+function offlineData(licenceKey: string): ActivationData {
+  const k = verifyOfflineKey(licenceKey);
+  if (k.expiresAt && Date.parse(k.expiresAt) < Date.now()) throw new ApiError(422, `This key expired on ${k.expiresAt.slice(0, 10)}. Ask your vendor for a new one.`, { licenceKey: "This key has expired" });
+  return {
+    offlineKeyId: k.id,
+    licence: {
+      clientCode: k.code, hospitalName: k.hospital, status: "Active", modules: k.modules, expiresAt: k.expiresAt, graceDays: 0, syncEnabled: false, notice: null, domain: null,
+      resyncRequestedAt: null, serverTime: new Date().toISOString(), plan: k.plan, trial: k.trial, maxUsers: k.maxUsers, brandingAt: null, vendor: null,
+    },
+  };
+}
+
+/**
+ * Super admin, once activated: { licenceKey } — renews or changes the licence with
+ * a new offline key from the vendor (also while the app is locked, and to move an
+ * installation that cannot reach the Control Panel to an offline licence).
+ */
+export async function enterOfflineKey(body: Record<string, unknown>, user: SessionUser, req: Request) {
+  if (appMode() !== "client") throw new ApiError(404, "Not a client installation");
+  const licenceKey = typeof body.licenceKey === "string" ? body.licenceKey.trim() : "";
+  if (!isOfflineKey(licenceKey)) throw new ApiError(422, "Paste the offline licence key from your vendor (it starts with SH1.)", { licenceKey: "Paste the whole key, starting with SH1." });
+  const data = offlineData(licenceKey);
+  await connectDB();
+  const current = await Licence.findById("licence").select("offlineKeyId").lean();
+  if (current?.offlineKeyId === data.offlineKeyId) throw new ApiError(409, "This key is already in use here.", { licenceKey: "This key is already in use here" });
+  return finishActivation(data, await installationIdOf(), null, req, "Entered offline licence key", user);
 }
 
 async function installationIdOf() {
@@ -234,13 +281,22 @@ function adminErrors(admin: Record<string, unknown>, errors: Record<string, stri
   return { name, email, password };
 }
 
-/** Saves the licence the Control Panel issued and, on a fresh install, creates the hospital's super admin. */
-async function finishActivation(data: { licence: LicencePayload; installToken: string }, installationId: string, admin: { name: string; email: string; password: string } | null, req: Request, what: string) {
+type ActivationData = { licence: LicencePayload; installToken?: string; offlineKeyId?: string };
+
+/** Saves the licence the Control Panel (or an offline key) issued and, on a fresh install, creates the hospital's super admin. */
+async function finishActivation(data: ActivationData, installationId: string, admin: { name: string; email: string; password: string } | null, req: Request, what: string, by?: SessionUser) {
   const { name, email, password } = admin ?? { name: "", email: "", password: "" };
   const now = new Date();
+  const previous = await Licence.findById("licence").select("branding brandingAt vendor clockAt").lean();
   await Licence.deleteOne({ _id: "licence" });
-  const lic = new Licence({ _id: "licence", clientCode: data.licence.clientCode, hospitalName: data.licence.hospitalName, installationId, installToken: data.installToken, activatedAt: now, lastCheckAt: now, lastAttemptAt: now });
+  const offline = !!data.offlineKeyId;
+  const lic = new Licence({
+    _id: "licence", clientCode: data.licence.clientCode, hospitalName: data.licence.hospitalName, installationId, installToken: data.installToken, activatedAt: now, lastCheckAt: now, lastAttemptAt: now,
+    offline, offlineKeyId: data.offlineKeyId, clockAt: offline ? new Date(Math.max(now.getTime(), previous?.clockAt?.getTime() ?? 0)) : undefined,
+  });
   apply(lic, data.licence);
+  // An offline key carries no branding or vendor details: keep what the Control Panel sent before.
+  if (offline && previous) lic.set({ branding: previous.branding, brandingAt: previous.brandingAt, vendor: previous.vendor });
   await lic.save();
   let created = null;
   if (admin) {
@@ -248,7 +304,7 @@ async function finishActivation(data: { licence: LicencePayload; installToken: s
   }
   forgetView();
   await logActivity({
-    req, user: created ? { id: String(created._id), name: created.name, email: created.email, role: "super_admin" } : null, actorEmail: email || undefined,
+    req, user: created ? { id: String(created._id), name: created.name, email: created.email, role: "super_admin" } : (by ?? null), actorEmail: email || undefined,
     action: "create", module: "system", resource: "licence", entityLabel: data.licence.clientCode,
     summary: `${what} ${data.licence.clientCode} for ${data.licence.hospitalName} on ${os.hostname()}${created ? `; created administrator ${email}` : ""}`,
   });
@@ -296,9 +352,10 @@ async function token() {
 export async function renewal(body: Record<string, unknown>, user: SessionUser, req: Request) {
   if (appMode() !== "client") throw new ApiError(404, "Not a client installation");
   const lic = await token();
+  if (lic.offline) throw new ApiError(409, "This installation uses an offline licence key. To renew, ask your vendor for a new key and enter it under Licence & Sync.");
   const action = String(body.action ?? "info");
   if (!["info", "order", "verify", "invoice"].includes(action)) throw new ApiError(400, "Unknown action");
-  const data = (await callControl("/api/control/renewal", { ...body, action, by: user.name }, lic.installToken)) as RenewalInfo | RenewalOrder | { payment: unknown; licence: LicencePayload };
+  const data = (await callControl("/api/control/renewal", { ...body, action, by: user.name }, lic.installToken ?? undefined)) as RenewalInfo | RenewalOrder | { payment: unknown; licence: LicencePayload };
   if (action === "verify") {
     const res = data as { payment: { status: string }; licence: LicencePayload };
     if (apply(lic, res.licence)) await resetSync();

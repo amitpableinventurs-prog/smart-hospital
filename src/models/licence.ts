@@ -16,7 +16,13 @@ const LicenceSchema = new Schema(
     hospitalName: { type: String, required: true },
     /** Random id of this installation; the Control Panel binds the licence to it. */
     installationId: { type: String, required: true },
-    installToken: { type: String, required: true, select: false },
+    /** Authenticates check-ins with the Control Panel; none for an offline key. */
+    installToken: { type: String, select: false },
+    /** Activated with an offline key (lib/offline-licence.ts): never checks in or uploads. */
+    offline: { type: Boolean, default: false },
+    offlineKeyId: String,
+    /** Latest time this installation has seen; expiry counts from it, so turning the clock back does not extend a licence. */
+    clockAt: Date,
     status: { type: String, enum: LICENCE_STATUSES, default: "Active" },
     modules: { type: [String], default: [] },
     expiresAt: Date,

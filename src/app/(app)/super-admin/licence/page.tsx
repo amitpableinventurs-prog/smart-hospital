@@ -1,8 +1,9 @@
 "use client";
 
-import { CreditCard, Gift, RefreshCw, UploadCloud } from "lucide-react";
+import { CreditCard, Gift, KeyRound, RefreshCw, UploadCloud } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { EnterKeyModal } from "@/components/licence/EnterKey";
 import { RenewModal, RenewalPayments, VendorContact, useRenewalInfo } from "@/components/licence/Renewal";
 import { Alert, Badge, Button, Card, CardHeader, ErrorState, PageHeader, Spinner, useToast } from "@/components/ui";
 import { api } from "@/lib/client";
@@ -21,8 +22,9 @@ export default function LicencePage() {
   const [error, setError] = useState<string | null>(null);
   const params = useSearchParams();
   const [renewing, setRenewing] = useState(() => params.get("renew") === "1");
+  const [entering, setEntering] = useState(() => params.get("key") === "1");
   const d = q.data ?? q.stale;
-  const renewal = useRenewalInfo(d?.mode === "client");
+  const renewal = useRenewalInfo(d?.mode === "client" && !d.offline);
 
   async function check() {
     setBusy("check");
@@ -63,8 +65,13 @@ export default function LicencePage() {
     <>
       <PageHeader
         title="Licence & Sync"
-        description="The licence from your vendor and the backup of this hospital's data to the vendor's central server."
-        actions={<div className="flex gap-2"><Button variant="secondary" onClick={check} loading={busy === "check"}><RefreshCw className="size-4" /> Check licence</Button><Button onClick={upload} loading={busy === "sync"}><UploadCloud className="size-4" /> Upload now</Button></div>}
+        description={d.offline ? "This installation uses an offline licence key from your vendor; it never needs the internet." : "The licence from your vendor and the backup of this hospital's data to the vendor's central server."}
+        actions={
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setEntering(true)}><KeyRound className="size-4" /> Enter licence key</Button>
+            {!d.offline && <><Button variant="secondary" onClick={check} loading={busy === "check"}><RefreshCw className="size-4" /> Check licence</Button><Button onClick={upload} loading={busy === "sync"}><UploadCloud className="size-4" /> Upload now</Button></>}
+          </div>
+        }
       />
       {error && <div className="mb-4"><Alert>{error}</Alert></div>}
       <div className="grid gap-4 lg:grid-cols-2">
@@ -75,9 +82,15 @@ export default function LicencePage() {
             <dt className="text-slate-500">Plan</dt><dd>{d.plan?.name ?? "—"} {d.trial && <Badge tone="violet"><Gift className="size-3" /> Free trial</Badge>}</dd>
             <dt className="text-slate-500">Valid until</dt><dd>{d.expiresAt ? `${formatDate(d.expiresAt)}${d.expiresInDays !== null && d.expiresInDays >= 0 ? ` (${d.expiresInDays} day${d.expiresInDays === 1 ? "" : "s"} left)` : ""}` : "No expiry"}</dd>
             <dt className="text-slate-500">Staff logins</dt><dd>{d.maxUsers ? `Up to ${d.maxUsers}` : "Unlimited"}</dd>
-            <dt className="text-slate-500">Last licence check</dt><dd>{formatDateTime(d.lastCheckAt)}</dd>
-            <dt className="text-slate-500">Works offline for</dt><dd>{d.offlineDaysLeft ?? "—"} more day(s)</dd>
-            <dt className="text-slate-500">Licence server</dt><dd className="break-all font-mono text-xs">{d.controlUrl ?? "—"}</dd>
+            {d.offline ? (
+              <><dt className="text-slate-500">Licence type</dt><dd>Offline key · entered {formatDateTime(d.lastCheckAt)}</dd></>
+            ) : (
+              <>
+                <dt className="text-slate-500">Last licence check</dt><dd>{formatDateTime(d.lastCheckAt)}</dd>
+                <dt className="text-slate-500">Works offline for</dt><dd>{d.offlineDaysLeft ?? "—"} more day(s)</dd>
+                <dt className="text-slate-500">Licence server</dt><dd className="break-all font-mono text-xs">{d.controlUrl ?? "—"}</dd>
+              </>
+            )}
             {d.lastError && <><dt className="text-slate-500">Last problem</dt><dd className="text-amber-800">{d.lastError}</dd></>}
           </dl>
           <div className="border-t border-slate-100 px-5 py-4">
@@ -86,6 +99,17 @@ export default function LicencePage() {
             <p className="mt-2 text-xs text-slate-500">Only these modules can be assigned to admins. Contact your vendor to add more.</p>
           </div>
         </Card>
+        {d.offline ? (
+          <Card>
+            <CardHeader title="Renewal" description="Before the licence ends, ask your vendor for a new offline key and enter it here (Enter licence key). Your data stays as it is." />
+            {d.vendor && (
+              <div className="px-5 pb-5 text-sm text-slate-600">
+                Vendor: <span className="font-medium text-slate-900">{d.vendor.name}</span>
+                <VendorContact vendor={d.vendor} className="mt-1 text-slate-700" />
+              </div>
+            )}
+          </Card>
+        ) : <>
         <Card>
           <CardHeader
             title="Plan & payments"
@@ -126,7 +150,18 @@ export default function LicencePage() {
             </div>
           )}
         </Card>
+        </>}
       </div>
+      {entering && (
+        <EnterKeyModal
+          onClose={() => setEntering(false)}
+          onDone={(l) => {
+            toast(l.locked ? l.locked.message : `Licence key applied${l.expiresAt ? ` — valid until ${formatDate(l.expiresAt)}` : ""}`);
+            setEntering(false);
+            q.reload();
+          }}
+        />
+      )}
       {renewing && (
         <RenewModal
           onClose={() => setRenewing(false)}

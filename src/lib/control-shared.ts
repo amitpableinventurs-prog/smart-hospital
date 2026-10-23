@@ -111,3 +111,21 @@ export function priceOf(price: number, gstPct: number, coupon?: { kind: string; 
 
 export const durationLabel = (days: number) =>
   days % 365 === 0 ? `${days / 365} year${days === 365 ? "" : "s"}` : days % 30 === 0 ? `${days / 30} month${days === 30 ? "" : "s"}` : `${days} days`;
+
+/** How long an offline licence key issued from a client's page runs. */
+export const KEY_VALIDITIES = ["month", "year", "date", "current"] as const;
+export type KeyValidity = (typeof KEY_VALIDITIES)[number];
+
+/**
+ * End of a monthly / yearly licence: calendar months added to the current
+ * expiry while a paid licence is still running (an early renewal loses no
+ * days), otherwise to today; valid through that whole day. 31 Jan + 1 month = 28/29 Feb.
+ */
+export function addLicenceMonths(currentExpiry: string | Date | null | undefined, trial: boolean, months: number, now = new Date()) {
+  const expiry = currentExpiry ? new Date(currentExpiry) : null;
+  const from = !trial && expiry && expiry > now ? expiry : now;
+  const to = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + months, 1, 23, 59, 59, 999));
+  const lastDay = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth() + 1, 0)).getUTCDate();
+  to.setUTCDate(Math.min(from.getUTCDate(), lastDay));
+  return to;
+}
