@@ -76,6 +76,16 @@ if (!mongoBin || !fs.existsSync(path.join(mongoBin, "mongod.exe"))) {
 }
 fs.mkdirSync(path.join(stage, "mongodb"));
 for (const f of fs.readdirSync(mongoBin)) if (f === "mongod.exe" || f.toLowerCase().endsWith(".dll")) fs.copyFileSync(path.join(mongoBin, f), path.join(stage, "mongodb", f));
+// mongod.exe needs the Visual C++ runtime, which a fresh Windows PC does not have: ship it next to mongod.exe.
+const system32 = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32");
+for (const f of ["msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll", "vcruntime140_1.dll"]) {
+  if (fs.existsSync(path.join(stage, "mongodb", f))) continue;
+  if (!fs.existsSync(path.join(system32, f))) {
+    console.error(`${f} not found in ${system32}. Install the Microsoft Visual C++ Redistributable (x64) on this PC and run again.`);
+    process.exit(1);
+  }
+  fs.copyFileSync(path.join(system32, f), path.join(stage, "mongodb", f));
+}
 
 const caddy = path.join(root, "installer", "vendor", "caddy.exe");
 if (fs.existsSync(caddy)) {
