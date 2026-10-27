@@ -112,6 +112,9 @@ async function createOrAdopt(model: ReturnType<typeof Groups>, key: string, doc:
 }
 
 async function seedMasters() {
+  // Unique names are what stop duplicate ledgers (createOrAdopt and Resolver.ensure rely on E11000).
+  // On a fresh database the index is still being built, so wait for it before creating any.
+  await Promise.all([Groups().init(), Ledgers().init()]).catch((err) => console.error("[accounts] could not build the unique name index:", err));
   const groupIds = new Map<string, { id: Types.ObjectId; name: string }>();
   for (const g of GROUP_SEEDS) {
     const parent = g.parent ? groupIds.get(g.parent) : undefined;
@@ -353,6 +356,12 @@ interface Draft {
   lines: { ledger: Ref; dr: number; cr: number }[];
 }
 
+/**
+ * Bill heads earned by a module that has its own income ledger (ambulance trips and lab
+ * tests charged to a hospital bill) post there, not to a second ledger with the same name.
+ */
+const BUILT_IN_INCOME: Record<string, string> = { Ambulance: "ambulance_income", Laboratory: "lab_income" };
+
 /** Ledger resolution shared by one posting run. */
 class Resolver {
   private cache = new Map<string, Ref>();
@@ -406,6 +415,8 @@ class Resolver {
   }
 
   income(category: string) {
+    const builtIn = BUILT_IN_INCOME[category];
+    if (builtIn) return this.system(builtIn);
     return this.ensure(`income:${category}`, async () => ({ name: `${category} Income`, group: "sales" }));
   }
 

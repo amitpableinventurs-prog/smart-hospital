@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { AppShell } from "@/components/AppShell";
 import { BrandTheme } from "@/components/BrandTheme";
 import { LicenceBanner, LicenceLock } from "@/components/LicenceLock";
@@ -10,6 +11,8 @@ import { getSessionUser } from "@/lib/session";
 export const instant = false;
 
 export default async function AuthenticatedLayout({ children }: LayoutProps<"/">) {
+  // The licence view reads the clock (expiry, offline days), so never compute it while prerendering.
+  await connection();
   const licence = await licenceView();
   if (licence.locked?.reason === "not_activated") redirect("/setup");
   const user = await getSessionUser();
