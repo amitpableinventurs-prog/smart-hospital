@@ -122,8 +122,8 @@ export function PaymentsTable({ rows, onChanged, showClient = true }: { rows: Pa
   );
 }
 
-/** The vendor records a cash / bank / UPI payment: the licence is extended right away. */
-export function RecordPaymentModal({ client, onClose, onDone }: { client: { id: string; name: string; plan: { id: string } | null; trial: boolean; expiresAt: string | null }; onClose: () => void; onDone: (p: PaymentRow) => void }) {
+/** The vendor records a cash / bank / UPI payment: the licence is extended right away and comes back as an offline key. */
+export function RecordPaymentModal({ client, onClose, onDone }: { client: { id: string; name: string; plan: { id: string } | null; trial: boolean; expiresAt: string | null }; onClose: () => void; onDone: (res: { payment: PaymentRow; offlineKey: string | null }) => void }) {
   const options = useSalesOptions();
   const plans = (options.data?.plans ?? []).filter((p) => p.active && !p.trial);
   const [v, setV] = useState({ plan: client.plan && !client.trial ? client.plan.id : "", method: "UPI", reference: "", paidOn: new Date().toISOString().slice(0, 10), coupon: "", extraDiscount: "", periodTo: "", notes: "" });
@@ -147,7 +147,7 @@ export function RecordPaymentModal({ client, onClose, onDone }: { client: { id: 
     setBusy(true);
     setError(null);
     try {
-      const { data } = await api<PaymentRow>(`/api/control/clients/${client.id}/payments`, { method: "POST", body: { ...v, plan: v.plan || plan?.id, extraDiscount: r2(Number(v.extraDiscount) || 0) } });
+      const { data } = await api<{ payment: PaymentRow; offlineKey: string | null }>(`/api/control/clients/${client.id}/payments`, { method: "POST", body: { ...v, plan: v.plan || plan?.id, extraDiscount: r2(Number(v.extraDiscount) || 0) } });
       onDone(data);
     } catch (e) {
       setError((e as Error).message);
@@ -157,7 +157,7 @@ export function RecordPaymentModal({ client, onClose, onDone }: { client: { id: 
   }
 
   return (
-    <Modal open onClose={onClose} size="lg" title={`Record payment · ${client.name}`} description="For payments received outside the app (UPI, bank transfer, cash, cheque). The licence is extended immediately and the hospital's app picks it up at its next check-in."
+    <Modal open onClose={onClose} size="lg" title={`Record payment · ${client.name}`} description="For payments received outside the app (UPI, bank transfer, cash, cheque). The licence is extended immediately: an online hospital app picks it up at its next check-in, and you get a licence key for the paid period to give a hospital that runs offline."
       footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button><Button onClick={submit} loading={busy} disabled={!plan}>Record & extend licence</Button></>}>
       <div className="space-y-4">
         {error && <Alert>{error}</Alert>}

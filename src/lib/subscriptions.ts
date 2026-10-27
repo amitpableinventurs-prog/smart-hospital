@@ -2,10 +2,11 @@ import "server-only";
 import mongoose from "mongoose";
 import { ApiError, clientIp, escapeRegex, pagination, parsePaging } from "./api";
 import { logActivity } from "./audit";
-import { assertControl, authInstallation, bindInstallation, fail, insertClient, loadClient, payload, text, vendorInfo, type ClientDocument } from "./control";
+import { assertControl, authInstallation, bindInstallation, fail, insertClient, loadClient, offlineKeyFor, payload, text, vendorInfo, type ClientDocument } from "./control";
 import { MANUAL_METHODS, durationLabel, priceOf, r2, type InvoiceView, type PaymentRow, type PlanRow, type Quote } from "./control-shared";
 import type { RenewalInfo, RenewalOrder } from "./licence-protocol";
 import { isModuleKey } from "./modules";
+import { offlineKeysEnabled } from "./offline-licence";
 import { accountById, hospitalAccount, rzp, signatureValid, type ResolvedAccount } from "./razorpay";
 import { newLeadCode, phoneOf } from "./sales";
 import type { SessionUser } from "./session";
@@ -288,7 +289,11 @@ async function markPaid(id: unknown, set: Record<string, unknown>, ctx: { req: R
   return p;
 }
 
-/** The vendor records a payment received outside the app: { plan, method, reference?, paidOn?, coupon?, extraDiscount?, periodTo?, notes? }. */
+/**
+ * The vendor records a payment received outside the app: { plan, method, reference?, paidOn?, coupon?, extraDiscount?, periodTo?, notes? }
+ * → { payment, offlineKey }. The key carries the plan until the end of the paid period, for hospitals that run offline
+ * (null when this server cannot sign keys or the client is suspended; online installations get the licence at check-in anyway).
+ */
 export async function recordPayment(clientId: string, body: Record<string, unknown>, user: SessionUser, req: Request) {
   assertControl();
   const c = await loadClient(clientId);
@@ -309,7 +314,15 @@ export async function recordPayment(clientId: string, body: Record<string, unkno
   const q = await buildQuote(c, { id: body.plan }, text(body.coupon, 30), { online: false, extraDiscount: r2(extraDiscount) });
   const p = await newPayment(c, q, { channel: "Manual", method, reference: text(body.reference, 80) || undefined, notes: text(body.notes, 300) || undefined, recordedByName: user.name });
   const period = periodTo ? { from: new Date(q.quote.periodFrom), to: periodTo } : undefined;
-  return paymentOut((await markPaid(p._id, { paidAt }, { req, user, period })).toObject() as Record<string, unknown>);
+  const payment = paymentOut((await markPaid(p._id, { paidAt }, { req, user, period })).toObject() as Record<string, unknown>);
+  const paid = await loadClient(clientId);
+  if (!offlineKeysEnabled() || paid.status === "Suspended") return { payment, offlineKey: null };
+  const offlineKey = offlineKeyFor(paid);
+  await logActivity({
+    req, user, action: "update", module: "system", resource: "control_clients", entityId: clientId, entityLabel: paid.code,
+    summary: `Issued an offline licence key for ${paid.code} ${paid.name} with payment ${payment.code} on ${payment.plan.name}, valid until ${payment.periodTo?.slice(0, 10)}`,
+  });
+  return { payment, offlineKey };
 }
 
 /** Payments list for the Control Panel: ?client=&status=&method=&from=&to=&search=&page= */

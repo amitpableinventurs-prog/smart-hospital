@@ -9,7 +9,7 @@ import { appMode } from "./deployment";
 import { KEY_VALIDITIES, LEAD_SOURCES, addLicenceMonths, type KeyValidity, type VendorInfo } from "./control-shared";
 import type { Branding, LicencePayload } from "./licence-protocol";
 import { isModuleKey, type ModuleKey } from "./modules";
-import { signOfflineKey } from "./offline-licence";
+import { assertOfflineKeys, signOfflineKey } from "./offline-licence";
 import type { SessionUser } from "./session";
 import { isObjectId } from "./validation";
 import { nextSerial } from "@/models/Counter";
@@ -289,6 +289,8 @@ export async function clientAction(id: string, body: Record<string, unknown>, us
     // { plan?, validity?: "month" | "year" | "date" | "current", until? }: optionally put the client on a plan and
     // set a new end date, then sign the licence as it stands — it activates any computer without the internet until it expires.
     if (c.status === "Suspended") throw new ApiError(409, "Re-activate this client before issuing an offline key.");
+    // Before the new end date is saved, or a retry would extend the licence again.
+    assertOfflineKeys();
     const validity = String(body.validity ?? "current") as KeyValidity;
     if (!(KEY_VALIDITIES as readonly string[]).includes(validity)) fail({ validity: "Choose how long the key is valid" });
     const set: Record<string, unknown> = {};
@@ -312,10 +314,9 @@ export async function clientAction(id: string, body: Record<string, unknown>, us
       c.set(set);
       await c.save();
     }
-    const p = payload(c);
-    const offlineKey = signOfflineKey({ code: p.clientCode, hospital: p.hospitalName, modules: p.modules, expiresAt: p.expiresAt, maxUsers: p.maxUsers, plan: p.plan, trial: p.trial });
+    const offlineKey = offlineKeyFor(c);
     const period = validity === "month" ? "monthly " : validity === "year" ? "yearly " : "";
-    await log(`Issued a ${period}offline licence key for ${c.code} ${c.name}${p.plan ? ` on ${p.plan.name}` : ""}, valid until ${p.expiresAt?.slice(0, 10) ?? "no expiry"}`);
+    await log(`Issued a ${period}offline licence key for ${c.code} ${c.name}${c.planName ? ` on ${c.planName}` : ""}, valid until ${c.expiresAt?.toISOString().slice(0, 10) ?? "no expiry"}`);
     return { client: clientOut(c.toObject() as Record<string, unknown>), offlineKey };
   }
   if (action === "reset-installation") {
@@ -380,6 +381,12 @@ export function payload(c: ClientDocument | Record<string, unknown>, brandingAt?
     brandingAt: iso(g("brandingAt")), ...(brandingAt !== undefined && brandingAt === iso(g("brandingAt")) ? {} : { branding: brandingOut(g("branding")) }),
     vendor: (({ name, phone, email, website }) => ({ name, phone, email, website }))(vendorInfo()),
   };
+}
+
+/** The client's licence as it stands, signed as an offline key (SH1.…). */
+export function offlineKeyFor(c: ClientDocument) {
+  const p = payload(c);
+  return signOfflineKey({ code: p.clientCode, hospital: p.hospitalName, modules: p.modules, expiresAt: p.expiresAt, maxUsers: p.maxUsers, plan: p.plan, trial: p.trial });
 }
 
 /** First run of an installation: { licenceKey, installationId, host, version } → licence + install token. */

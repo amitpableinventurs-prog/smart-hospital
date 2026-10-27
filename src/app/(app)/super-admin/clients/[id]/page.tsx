@@ -242,9 +242,10 @@ export default function ClientPage() {
         <RecordPaymentModal
           client={c}
           onClose={() => setPaying(false)}
-          onDone={(p) => {
+          onDone={({ payment: p, offlineKey: key }) => {
             toast(`Payment ${p.code} recorded — licence valid until ${formatDate(p.periodTo)}`);
             setPaying(false);
+            if (key) setOfflineKey({ key, expiresAt: p.periodTo });
             payments.reload();
             q.reload();
           }}

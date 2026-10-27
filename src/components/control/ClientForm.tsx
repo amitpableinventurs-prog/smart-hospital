@@ -216,7 +216,8 @@ const VALIDITY_LABELS: Record<KeyValidity, string> = { month: "Monthly — 1 mon
 export function IssueOfflineKeyModal({ client: c, onClose, onIssued }: { client: ClientRow; onClose: () => void; onIssued: (res: { client: ClientRow; offlineKey: string }) => void }) {
   const options = useSalesOptions();
   const plans = (options.data?.plans ?? []).filter((p) => p.active && !p.trial);
-  const [v, setV] = useState<{ plan: string; validity: KeyValidity; until: string }>({ plan: "", validity: "year", until: "" });
+  // A paid licence that is still running (e.g. just paid for) keeps its end date unless another period is chosen on purpose.
+  const [v, setV] = useState<{ plan: string; validity: KeyValidity; until: string }>(() => ({ plan: "", validity: !c.trial && c.expiresAt && new Date(c.expiresAt) > new Date() ? "current" : "year", until: "" }));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

@@ -38,6 +38,16 @@ if (!/LICENCE_PUBLIC_KEY = "[A-Za-z0-9+/=]{40,}"/.test(fs.readFileSync(path.join
   console.error("No offline licence signing key yet. Run: npm run licence-key -- init");
   process.exit(1);
 }
+// A server set up on this PC from dist\electron\win-unpacked keeps its files open, so electron-builder
+// cannot replace them and the build fails. Its database service shows where it runs from.
+const dbService = (spawnSync("sc.exe", ["qc", "SmartHospitalDB"], { encoding: "utf8" }).stdout ?? "").match(/BINARY_PATH_NAME\s*:\s*"?(.+?mongod\.exe)/i)?.[1];
+if (dbService && path.resolve(dbService).toLowerCase().startsWith(path.join(root, "dist").toLowerCase() + path.sep)) {
+  console.error(`This PC's Smart Hospital server runs from the build folder (${path.dirname(path.dirname(dbService))}), which locks its files.
+Remove it first, in a terminal run as administrator (the data in %ProgramData%\\SmartHospital is kept):
+  "${path.join(path.dirname(path.dirname(dbService)), "bin", "services.cmd")}" uninstall
+To test a build on this PC, install the setup .exe instead of running win-unpacked.`);
+  process.exit(1);
+}
 
 const step = (msg) => console.log(`\n▸ ${msg}`);
 const copy = (from, to) => fs.cpSync(from, to, { recursive: true, dereference: true });
@@ -97,7 +107,8 @@ copy(path.join(root, "installer", "files"), path.join(stage, "bin"));
 fs.copyFileSync(path.join(root, "src", "app", "favicon.ico"), path.join(stage, "bin", "app.ico"));
 console.log(`  app ${pkg.version}, Node ${process.version}, MongoDB from ${mongoBin}${fs.existsSync(caddy) ? ", Caddy (HTTPS)" : ""}`);
 
-// 3. Compile the setup
+// 3. Compile the setup. The previous one goes first, so a failed build cannot leave it behind looking like the new one.
+fs.rmSync(path.join(dist, `SmartHospital-Setup-${pkg.version}.exe`), { force: true });
 if (!args.inno) {
   step("Packaging the desktop app and setup (electron-builder)…");
   const { build, Platform, Arch } = await import("electron-builder");

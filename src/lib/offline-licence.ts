@@ -39,11 +39,18 @@ export const isOfflineKey = (key: string) => key.trim().startsWith(OFFLINE_KEY_P
 
 const b64 = (b: Buffer) => b.toString("base64url");
 
+/** Control Panel: whether this server can sign offline keys (LICENCE_SIGNING_KEY is set). */
+export const offlineKeysEnabled = () => !!process.env.LICENCE_SIGNING_KEY?.trim();
+
+/** Control Panel: a 503 unless offline keys can be signed — check before changing anything the key depends on. */
+export function assertOfflineKeys() {
+  if (!offlineKeysEnabled()) throw new ApiError(503, "Offline keys are not set up on this server. Run `npm run licence-key -- init` and set LICENCE_SIGNING_KEY.");
+}
+
 /** Control Panel: sign a licence. Needs LICENCE_SIGNING_KEY (base64 PKCS#8 DER). */
 export function signOfflineKey(lic: Omit<OfflineLicence, "v" | "id" | "issuedAt">): string {
-  const secret = process.env.LICENCE_SIGNING_KEY?.trim();
-  if (!secret) throw new ApiError(503, "Offline keys are not set up on this server. Run `npm run licence-key -- init` and set LICENCE_SIGNING_KEY.");
-  const key = createPrivateKey({ key: Buffer.from(secret, "base64"), format: "der", type: "pkcs8" });
+  assertOfflineKeys();
+  const key = createPrivateKey({ key: Buffer.from(process.env.LICENCE_SIGNING_KEY!.trim(), "base64"), format: "der", type: "pkcs8" });
   const body: OfflineLicence = { v: 1, id: randomUUID(), ...lic, issuedAt: new Date().toISOString() };
   const json = Buffer.from(JSON.stringify(body));
   return `${OFFLINE_KEY_PREFIX}${b64(json)}.${b64(sign(null, json, key))}`;

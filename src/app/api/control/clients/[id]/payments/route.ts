@@ -5,7 +5,7 @@ import { recordPayment } from "@/lib/subscriptions";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/** Record a payment received outside the app: { plan, method, reference?, paidOn?, coupon?, extraDiscount?, periodTo?, notes? } → extends the licence. */
+/** Record a payment received outside the app: { plan, method, reference?, paidOn?, coupon?, extraDiscount?, periodTo?, notes? } → extends the licence; { payment, offlineKey }. */
 export const POST = handle<Ctx>(async (req, { params }) => {
   const user = await requireUser({ superAdmin: true });
   const body = await readJson(req);
