@@ -49,11 +49,13 @@ export function ActivityLogView({ actor, admins }: { actor?: string; admins?: Ad
   const rows = list.data ?? [];
 
   const filtered = !!(debounced || actorFilter || module || action || from || to);
+  const showUsers = !actor && !!admins;
 
   return (
     <Card>
-      <div className="grid gap-3 border-b border-slate-100 p-4 sm:grid-cols-2 lg:grid-cols-6">
-        <input value={search} onChange={(e) => f(setSearch)(e.target.value)} placeholder="Search summary, record or user…" className={cx(inputClass, "lg:col-span-2")} aria-label="Search activity" />
+      {/* The date range needs two columns; filters wrap to two rows until there is room for one. */}
+      <div className={cx("grid gap-3 border-b border-slate-100 p-4 sm:grid-cols-2 lg:grid-cols-3", showUsers ? "2xl:grid-cols-7" : "xl:grid-cols-6")}>
+        <input value={search} onChange={(e) => f(setSearch)(e.target.value)} placeholder="Search summary, record or user…" className={cx(inputClass, showUsers ? "2xl:col-span-2" : "sm:col-span-2")} aria-label="Search activity" />
         {!actor && admins && (
           <select value={actorFilter} onChange={(e) => f(setActorFilter)(e.target.value)} className={inputClass} aria-label="Filter by admin">
             <option value="">All users</option>
@@ -69,9 +71,9 @@ export function ActivityLogView({ actor, admins }: { actor?: string; admins?: Ad
           <option value="">All actions</option>
           {Object.entries(ACTION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-        <div className={cx("flex gap-2", actor ? "lg:col-span-2" : "")}>
-          <input type="date" value={from} max={to || undefined} onChange={(e) => f(setFrom)(e.target.value)} className={inputClass} aria-label="From date" />
-          <input type="date" value={to} min={from || undefined} onChange={(e) => f(setTo)(e.target.value)} className={inputClass} aria-label="To date" />
+        <div className="flex gap-2 sm:col-span-2">
+          <input type="date" value={from} max={to || undefined} onChange={(e) => f(setFrom)(e.target.value)} className={cx(inputClass, "min-w-0")} aria-label="From date" />
+          <input type="date" value={to} min={from || undefined} onChange={(e) => f(setTo)(e.target.value)} className={cx(inputClass, "min-w-0")} aria-label="To date" />
         </div>
       </div>
 
