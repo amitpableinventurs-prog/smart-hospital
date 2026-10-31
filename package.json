@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "create-demo-admins": "node --env-file=.env.local scripts/create-demo-admins.mjs",
     "seed-demo": "node --env-file=.env.local --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/seed-demo-data.mjs",
+    "seed-clinic-demo": "node --env-file=.env.local scripts/seed-clinic-demo.mjs",
     "build:windows": "node scripts/build-windows.mjs",
     "licence-key": "node scripts/licence-key.mjs"
   },

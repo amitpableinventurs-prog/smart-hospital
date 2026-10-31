@@ -5,6 +5,7 @@ import { AccountsSection } from "@/components/accounts/AccountsSection";
 import { AmbulanceSection } from "@/components/ambulance/AmbulanceSection";
 import { BillingSection } from "@/components/billing/BillingSection";
 import { BloodStockSummary } from "@/components/BloodStockSummary";
+import { ClinicTodaySummary } from "@/components/ClinicTodaySummary";
 import { HrSection } from "@/components/hr/HrSection";
 import { InsuranceSection } from "@/components/insurance/InsuranceSection";
 import { InventorySection } from "@/components/inventory/InventorySection";
@@ -37,6 +38,7 @@ export function ModulePanel({ moduleKey, initialTab }: { moduleKey: ModuleKey; i
         }
       />
       {mod.key === "blood_bank" && <BloodStockSummary />}
+      {mod.key === "clinic" && current.group === "Front Desk" && <ClinicTodaySummary />}
       {visible.length > 1 && (
         <div className="mb-4 flex gap-1 overflow-x-auto border-b border-slate-200" role="tablist">
           {visible.map((s) => (

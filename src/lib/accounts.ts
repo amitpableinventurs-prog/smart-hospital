@@ -40,7 +40,7 @@ import { getRecordModel } from "@/models/records";
  *
  * Automatic postings: every money document of the other modules (hospital
  * bills and their receipts, pharmacy sales and purchases, GRNs and purchase
- * returns, lab orders, ambulance trips, vendor and doctor payments, staff
+ * returns, lab orders, ambulance trips, clinic fee receipts, vendor and doctor payments, staff
  * advances and paid payroll) is turned into vouchers here. The vouchers of a
  * document are rebuilt from scratch whenever the document changes, so the
  * books always match the modules and nothing in them is edited by hand.
@@ -640,6 +640,22 @@ const SOURCES: Source[] = [
     },
   },
   {
+    kind: "clinic_receipt",
+    label: "Clinic fee receipts",
+    deletable: true,
+    find: (f) => M("clinic", "receipts").find(f).lean<Doc[]>(),
+    exists: (ids) => M("clinic", "receipts").find({ _id: { $in: ids } }).distinct("_id"),
+    async build(p, res) {
+      const amount = r2(Number(p.amount ?? 0));
+      if (p.status !== "Paid" || amount <= 0) return [];
+      return [{
+        key: `cfr:${p._id}`, code: String(p.code ?? p._id), type: "Receipt", date: p.receiptDate as Date, refNo: (p.reference as string) || undefined,
+        narration: `Clinic consultation fee — ${p.patientName ?? "patient"}`,
+        lines: [...(await modeLines(res, "dr", [{ mode: p.mode as string, amount }])), { ledger: await res.income("Consultation"), dr: 0, cr: amount }],
+      }];
+    },
+  },
+  {
     kind: "doctor_payout",
     label: "Doctor payouts",
     deletable: true,
@@ -873,6 +889,7 @@ const SOURCE_HREF: Record<string, (id: string) => string> = {
   lab_order: (id) => `/laboratory/orders/${id}`,
   ambulance_trip: (id) => `/ambulance/trips/${id}`,
   supplier_payment: () => "/m/inventory?tab=supplier_payments",
+  clinic_receipt: () => "/m/clinic?tab=receipts",
   doctor_payout: () => "/m/billing?tab=doctor_payouts",
   staff_advance: () => "/m/hr?tab=advances",
   payroll: () => "/m/hr?tab=payroll",

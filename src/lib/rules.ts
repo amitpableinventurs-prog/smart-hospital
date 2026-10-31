@@ -3,7 +3,7 @@ import type { Types } from "mongoose";
 import { ACCOUNTS_RULES } from "./accounts";
 import { ApiError, escapeRegex } from "./api";
 import { normalizePin } from "./biometric";
-import { WEEKDAYS, type RecordValues } from "./modules";
+import { CLOSED_TOKEN_STATUSES, WEEKDAYS, type RecordValues } from "./modules";
 import { WORKING_STATUSES, assertAvailable, assertMonthOpen, checkLeaveBalance, countLeaveDays, rosteredShifts } from "./hr";
 import { billOutstanding } from "./inventory";
 import { ACTIVE_TRIP_STATUSES, Trip } from "@/models/ambulance";
@@ -723,5 +723,129 @@ export const RULES: Record<string, ResourceRules> = {
     },
   },
 
+  "clinic.clinics": {
+    beforeSave: async (v, existing) => {
+      if (existing && v.status === "Inactive" && existing.status !== "Inactive") {
+        const open = await M("clinic", "tokens").countDocuments({ clinic: existing._id, status: { $in: ["Waiting", "In Consultation"] }, visitDate: { $gte: startOfToday() } });
+        if (open) reject("status", `${open} token(s) are still open. Complete or cancel them first.`);
+      }
+    },
+  },
+
+  "clinic.tokens": {
+    beforeSave: async (v, existing) => {
+      const m = { ...(existing ?? {}), ...v } as RecordValues;
+      const moved = !existing || ["clinic", "visitDate", "patient"].some((k) => v[k] !== undefined && !sameRef(v[k], existing[k]));
+      if (existing && moved && (await M("clinic", "receipts").exists({ token: existing._id, status: "Paid" }))) {
+        reject("clinic", "A fee receipt has been issued for this token. Cancel the receipt before changing the clinic, date or patient.");
+      }
+      if (existing && (CLOSED_TOKEN_STATUSES as readonly string[]).includes(String(v.status)) && (await M("clinic", "consultations").exists({ token: existing._id }))) {
+        reject("status", "This token already has a consultation. Delete the consultation first.");
+      }
+      if (!moved) return;
+
+      const clinic = await M("clinic", "clinics").findById(m.clinic).lean<Doc>();
+      if (!clinic || !(m.visitDate instanceof Date)) return;
+      const date = m.visitDate;
+      const name = String(clinic.name);
+      if (clinic.status !== "Active") reject("clinic", `${name} is inactive`);
+      const day = WEEKDAYS[date.getUTCDay()];
+      const days = clinic.workingDays ? String(clinic.workingDays).split(",") : null;
+      if (days && !days.includes(day)) reject("visitDate", `${name} is closed on ${day} (open ${days.join(", ")})`);
+
+      const doctor = await M("doctors", "doctors").findById(clinic.doctor).select("fullName").lean<Doc>();
+      const leave = await M("doctors", "leaves")
+        .findOne({ doctor: clinic.doctor, status: "Approved", fromDate: { $lte: date }, toDate: { $gte: date } })
+        .select("code")
+        .lean<Doc>();
+      if (leave) reject("visitDate", `${doctor?.fullName ?? "The clinic's doctor"} is on approved leave on this date (${leave.code})`);
+
+      const live = { clinic: clinic._id, visitDate: date, status: { $nin: [...CLOSED_TOKEN_STATUSES] }, ...notSelf(existing) };
+      const dup = await M("clinic", "tokens").findOne({ ...live, patient: m.patient }).select("code tokenNo").lean<Doc>();
+      if (dup) reject("patient", `Already has token ${dup.tokenNo} (${dup.code}) in this clinic on this date`);
+      if (typeof clinic.maxTokensPerDay === "number" && (await M("clinic", "tokens").countDocuments(live)) >= clinic.maxTokensPerDay) {
+        reject("visitDate", `${name} is full on this date (${clinic.maxTokensPerDay} tokens)`);
+      }
+
+      // A repeat visit within the clinic's follow-up period is a follow-up.
+      const validity = typeof clinic.followUpValidityDays === "number" ? clinic.followUpValidityDays : 0;
+      const recent = validity > 0
+        ? await M("clinic", "tokens").exists({ clinic: clinic._id, patient: m.patient, status: "Completed", visitType: "New", visitDate: { $lt: date, $gte: new Date(date.getTime() - validity * 86_400_000) }, ...notSelf(existing) })
+        : null;
+      const patient = await M("patients", "patients").findById(m.patient).select("fullName").lean<Doc>();
+
+      v.patientName = patient ? String(patient.fullName) : null;
+      v.clinicName = name;
+      v.doctor = clinic.doctor as RecordValues[string];
+      const fee = Number((recent ? clinic.followUpFee : clinic.consultationFee) ?? 0);
+      v.visitType = recent ? "Follow-up" : "New";
+      v.fee = fee;
+      v.feeStatus = fee > 0 ? "Due" : "Free";
+      if (!existing || !sameRef(v.clinic ?? existing.clinic, existing.clinic) || (v.visitDate !== undefined && isoDate(v.visitDate) !== isoDate(existing.visitDate))) {
+        v.tokenNo = await nextSerial(`clinic_token:${clinic._id}:${isoDate(date)}`);
+      }
+    },
+  },
+
+  "clinic.consultations": {
+    beforeSave: async (v, existing) => {
+      if (existing && v.token !== undefined && !sameRef(v.token, existing.token)) reject("token", "A consultation cannot be moved to another token. Delete it and record a new one.");
+      if (existing) return;
+      const token = await M("clinic", "tokens").findById(v.token).lean<Doc>();
+      if (!token) return;
+      if ((CLOSED_TOKEN_STATUSES as readonly string[]).includes(String(token.status))) reject("token", `Token ${token.code} is ${String(token.status).toLowerCase()}`);
+      const done = await M("clinic", "consultations").findOne({ token: token._id }).select("code").lean<Doc>();
+      if (done) reject("token", `This token already has consultation ${done.code}`);
+      v.visitDate = token.visitDate as Date;
+      v.patient = token.patient as RecordValues[string];
+      v.doctor = token.doctor as RecordValues[string];
+      v.patientName = (token.patientName as string) ?? null;
+    },
+    afterSave: async (doc) => {
+      await M("clinic", "tokens").updateOne({ _id: doc.token, status: { $ne: "Completed" } }, { $set: { status: "Completed" } });
+    },
+    afterDelete: async (d) => {
+      await M("clinic", "tokens").updateOne({ _id: d.token, status: "Completed" }, { $set: { status: "In Consultation" } });
+    },
+  },
+
+  "clinic.receipts": {
+    beforeSave: async (v, existing) => {
+      const m = { ...(existing ?? {}), ...v } as RecordValues;
+      if (existing && v.token !== undefined && !sameRef(v.token, existing.token)) reject("token", "A receipt cannot be moved to another token. Cancel it and issue a new one.");
+      const token = await M("clinic", "tokens").findById(m.token).lean<Doc>();
+      if (!token) return;
+      if (!existing) {
+        if ((CLOSED_TOKEN_STATUSES as readonly string[]).includes(String(token.status))) reject("token", `Token ${token.code} is ${String(token.status).toLowerCase()}`);
+        if (!(Number(token.fee) > 0)) reject("token", "No fee is charged for this visit");
+        v.fee = Number(token.fee);
+        v.patient = token.patient as RecordValues[string];
+        v.patientName = (token.patientName as string) ?? null;
+      }
+      const fee = Number(v.fee ?? existing?.fee ?? 0);
+      const discount = Number(m.discount ?? 0);
+      if (discount > fee) reject("discount", `Cannot be more than the fee (₹${fee})`);
+      v.amount = Math.round((fee - discount) * 100) / 100;
+      if (m.status === "Paid" && (!existing || existing.status !== "Paid")) {
+        const other = await M("clinic", "receipts").findOne({ token: token._id, status: "Paid", ...notSelf(existing) }).select("code").lean<Doc>();
+        if (other) reject("token", `Fee already received on receipt ${other.code}`);
+      }
+    },
+    afterSave: async (doc) => syncFeeStatus(doc.token),
+    afterDelete: async (d) => syncFeeStatus(d.token),
+  },
+
   ...ACCOUNTS_RULES,
 };
+
+function sameRef(a: unknown, b: unknown) {
+  return String(a ?? "") === String(b ?? "");
+}
+
+/** A token's fee status follows its receipts. */
+async function syncFeeStatus(tokenId: unknown) {
+  const token = await M("clinic", "tokens").findById(tokenId).select("fee").lean<Doc>();
+  if (!token) return;
+  const paid = await M("clinic", "receipts").exists({ token: token._id, status: "Paid" });
+  await M("clinic", "tokens").updateOne({ _id: token._id }, { $set: { feeStatus: paid ? "Paid" : Number(token.fee) > 0 ? "Due" : "Free" } });
+}

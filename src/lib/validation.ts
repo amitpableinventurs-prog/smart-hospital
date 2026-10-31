@@ -124,7 +124,7 @@ export function validateRecord(
     if (opts.partial && !(field.name in input)) continue;
     let raw = input[field.name];
     // New records fall back to the field's default when a value is omitted.
-    if (!opts.partial && isEmpty(raw) && field.default !== undefined) raw = field.default;
+    if (!opts.partial && isEmpty(raw) && field.default !== undefined) raw = field.default === "today" ? new Date().toISOString().slice(0, 10) : field.default;
     const { value, error } = parseField(field, raw);
     if (error) errors[field.name] = error;
     else values[field.name] = value;

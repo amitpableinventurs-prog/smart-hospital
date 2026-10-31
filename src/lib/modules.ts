@@ -45,7 +45,7 @@ export interface FieldDef {
   list?: boolean;
   /** Include this field in free-text search. */
   search?: boolean;
-  /** Default value for new records. */
+  /** Default value for new records ("today" for a date field means the current date). */
   default?: string | number;
   /** Span both columns in the form grid. */
   wide?: boolean;
@@ -123,6 +123,7 @@ export const MODULE_KEYS = [
   "patients",
   "opd_ipd",
   "doctors",
+  "clinic",
   "nursing",
   "laboratory",
   "inventory",
@@ -193,6 +194,11 @@ export const CHARGE_UNITS = ["Per service", "Per day", "Per hour", "Per visit"] 
 export const BILL_PAYMENT_MODES = ["Cash", "Card", "UPI", "Bank Transfer", "Cheque"] as const;
 export const PAYER_TYPES = ["Self", "Corporate", "Insurance"] as const;
 export const DOCTOR_FEE_TYPES = ["Consultation", "Follow-up", "Emergency", "IPD Visit", "Surgeon", "Assistant Surgeon", "Anaesthetist", "Procedure"] as const;
+
+/* ---------- Clinic ---------- */
+export const TOKEN_STATUSES = ["Waiting", "In Consultation", "Completed", "Cancelled", "No-show"] as const;
+/** Token statuses that free the patient's place in the queue. */
+export const CLOSED_TOKEN_STATUSES = ["Cancelled", "No-show"] as const;
 
 /* ---------- Human resources ---------- */
 export const STAFF_CATEGORIES = ["Doctor", "Nurse", "Paramedic / EMT", "Technician", "Pharmacist", "Administration", "Accounts", "Support", "Housekeeping", "Security", "Driver"] as const;
@@ -383,6 +389,122 @@ export const MODULES: ModuleDef[] = [
           ...notBefore("toDate", "fromDate", "Cannot be before the start date")(v),
           ...(v.substitute && String(v.substitute) === String(v.doctor) ? { substitute: "Choose a different doctor" } : {}),
         }),
+      },
+    ],
+  },
+  {
+    key: "clinic",
+    label: "Clinic Management",
+    description: "Clinic setup, token queue, consultations and fee receipts",
+    icon: "hospital",
+    groups: ["Front Desk", "Consultation", "Setup"],
+    resources: [
+      {
+        key: "tokens",
+        group: "Front Desk",
+        label: "Token Queue",
+        singular: "Token",
+        codePrefix: "TKN",
+        labelField: "patientName",
+        statusField: "status",
+        lookup: true,
+        lookupFields: ["clinicName"],
+        fields: [
+          { name: "visitDate", label: "Visit date", type: "date", required: true, default: "today", list: true },
+          { name: "clinic", label: "Clinic", type: "ref", ref: "clinic.clinics", required: true, list: true },
+          { name: "tokenNo", label: "Token no.", type: "number", readOnly: true, list: true, hint: "Issued automatically, starting from 1 each day for each clinic" },
+          { name: "patient", label: "Patient", type: "ref", ref: "patients.patients", required: true, list: true },
+          { name: "doctor", label: "Doctor", type: "ref", ref: "doctors.doctors", readOnly: true, list: true, hint: "The clinic's doctor" },
+          { name: "visitType", label: "Visit type", type: "select", options: ["New", "Follow-up"], readOnly: true, list: true, hint: "Follow-up when the patient was seen in this clinic within its follow-up period" },
+          { name: "fee", label: "Fee", type: "number", readOnly: true, list: true },
+          { name: "feeStatus", label: "Fee status", type: "select", options: ["Due", "Paid", "Free"], readOnly: true, list: true, hint: "Updated by Fee Receipts" },
+          { name: "complaint", label: "Complaint / reason for visit", type: "textarea", maxLength: 500, wide: true, search: true },
+          { name: "status", label: "Status", type: "select", options: TOKEN_STATUSES, required: true, default: "Waiting", list: true, hint: "Saving a consultation marks the token Completed" },
+          { name: "patientName", label: "Patient name", type: "text", readOnly: true, search: true },
+          { name: "clinicName", label: "Clinic name", type: "text", readOnly: true },
+        ],
+      },
+      {
+        key: "receipts",
+        group: "Front Desk",
+        label: "Fee Receipts",
+        singular: "Fee Receipt",
+        codePrefix: "CFR",
+        labelField: "patientName",
+        statusField: "status",
+        fields: [
+          { name: "receiptDate", label: "Receipt date", type: "date", required: true, default: "today", past: true, list: true },
+          { name: "token", label: "Token", type: "ref", ref: "clinic.tokens", required: true, list: true, refFilter: { status: "Waiting|In Consultation|Completed" } },
+          { name: "patient", label: "Patient", type: "ref", ref: "patients.patients", readOnly: true, list: true },
+          { name: "fee", label: "Fee", type: "number", readOnly: true, list: true, hint: "From the token" },
+          { name: "discount", label: "Discount", type: "number", min: 0, default: 0 },
+          { name: "amount", label: "Amount received", type: "number", readOnly: true, list: true, hint: "Fee less discount" },
+          { name: "mode", label: "Payment mode", type: "select", options: BILL_PAYMENT_MODES, required: true, default: "Cash", list: true },
+          { name: "reference", label: "Transaction / cheque ref.", type: "text", maxLength: 40, search: true },
+          { name: "remarks", label: "Remarks", type: "text", maxLength: 200, wide: true },
+          { name: "status", label: "Status", type: "select", options: ["Paid", "Cancelled"], required: true, default: "Paid", list: true, hint: "Cancelled receipts are taken out of Accounts" },
+          { name: "patientName", label: "Patient name", type: "text", readOnly: true, search: true },
+        ],
+      },
+      {
+        key: "consultations",
+        group: "Consultation",
+        label: "Consultations",
+        singular: "Consultation",
+        codePrefix: "CON",
+        labelField: "patientName",
+        unique: ["token"],
+        fields: [
+          { name: "token", label: "Token", type: "ref", ref: "clinic.tokens", required: true, list: true, refFilter: { status: "Waiting|In Consultation" }, section: "Visit" },
+          { name: "visitDate", label: "Visit date", type: "date", readOnly: true, list: true },
+          { name: "patient", label: "Patient", type: "ref", ref: "patients.patients", readOnly: true, list: true },
+          { name: "doctor", label: "Doctor", type: "ref", ref: "doctors.doctors", readOnly: true, list: true },
+
+          { name: "bp", label: "Blood pressure (mmHg)", type: "text", maxLength: 7, placeholder: "e.g. 120/80", section: "Vitals" },
+          { name: "pulse", label: "Pulse (/min)", type: "number", min: 20, max: 250 },
+          { name: "temperature", label: "Temperature (°F)", type: "number", min: 90, max: 110 },
+          { name: "spo2", label: "SpO₂ (%)", type: "number", min: 50, max: 100 },
+          { name: "weight", label: "Weight (kg)", type: "number", min: 0.5, max: 300 },
+
+          { name: "complaints", label: "Complaints", type: "textarea", maxLength: 1000, wide: true, search: true, section: "Examination & diagnosis" },
+          { name: "examination", label: "Examination findings", type: "textarea", maxLength: 1000, wide: true },
+          { name: "diagnosis", label: "Diagnosis", type: "textarea", maxLength: 500, wide: true, search: true },
+
+          { name: "prescription", label: "Prescription (Rx)", type: "textarea", maxLength: 3000, wide: true, section: "Treatment", placeholder: "1. Tab Paracetamol 650 mg — 1-0-1 × 3 days, after food" },
+          { name: "investigations", label: "Tests advised", type: "textarea", maxLength: 1000, wide: true },
+          { name: "advice", label: "Advice", type: "textarea", maxLength: 1000, wide: true },
+          { name: "followUpDate", label: "Follow-up on", type: "date", list: true },
+          { name: "patientName", label: "Patient name", type: "text", readOnly: true, search: true },
+        ],
+        check: (v): Record<string, string> => (typeof v.bp === "string" && !/^\d{2,3}\/\d{2,3}$/.test(v.bp) ? { bp: "Enter as systolic/diastolic, e.g. 120/80" } : {}),
+      },
+      {
+        key: "clinics",
+        group: "Setup",
+        label: "Clinics",
+        singular: "Clinic",
+        labelField: "name",
+        statusField: "status",
+        lookup: true,
+        lookupFields: ["roomNo"],
+        lookupFilter: { status: "Active" },
+        unique: ["name"],
+        fields: [
+          { name: "name", label: "Clinic name", type: "text", required: true, maxLength: 100, list: true, search: true, placeholder: "e.g. General OPD – Dr. Sharma" },
+          { name: "doctor", label: "Doctor", type: "ref", ref: "doctors.doctors", required: true, list: true },
+          { name: "department", label: "Department", type: "select", options: DEPARTMENTS, list: true },
+          { name: "roomNo", label: "Room / cabin", type: "text", maxLength: 30, list: true },
+          { name: "phone", label: "Clinic phone", type: "tel" },
+          { name: "workingDays", label: "Working days", type: "multiselect", options: WORK_WEEK, required: true, default: "Mon,Tue,Wed,Thu,Fri,Sat", wide: true, section: "Timings" },
+          { name: "startTime", label: "Opens at", type: "time", required: true, default: "09:00", list: true },
+          { name: "endTime", label: "Closes at", type: "time", required: true, default: "13:00", list: true },
+          { name: "maxTokensPerDay", label: "Max tokens per day", type: "number", min: 1, max: 500, hint: "Leave blank for no limit" },
+          { name: "consultationFee", label: "Consultation fee", type: "number", min: 0, required: true, list: true, section: "Fees" },
+          { name: "followUpFee", label: "Follow-up fee", type: "number", min: 0, default: 0, hint: "Charged for repeat visits within the follow-up period; 0 = free" },
+          { name: "followUpValidityDays", label: "Follow-up period (days)", type: "number", min: 0, max: 365, default: 7 },
+          { name: "status", label: "Status", type: "select", options: ACTIVE, required: true, default: "Active", list: true, hint: "Inactive clinics cannot issue tokens" },
+        ],
+        check: (v): Record<string, string> => (typeof v.startTime === "string" && typeof v.endTime === "string" && v.endTime <= v.startTime ? { endTime: "Must be after the opening time" } : {}),
       },
     ],
   },

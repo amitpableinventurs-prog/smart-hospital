@@ -20,6 +20,7 @@ const ACCOUNTS = [
   ["Patients Admin", "patients", ["patients"]],
   ["OPD/IPD Admin", "opd", ["opd_ipd"]],
   ["Doctors Admin", "doctors", ["doctors"]],
+  ["Clinic Admin", "clinic", ["clinic", "patients"]],
   ["Nursing Admin", "nursing", ["nursing"]],
   ["Laboratory Admin", "lab", ["laboratory"]],
   ["Inventory Admin", "inventory", ["inventory"]],

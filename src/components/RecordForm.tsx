@@ -19,7 +19,13 @@ export interface RefOption {
 export function initialValues(resource: ResourceDef, record?: Record<string, unknown> | null): FormValues {
   const out: FormValues = {};
   for (const f of resource.fields) {
-    out[f.name] = record ? toInputValue(f, record[f.name]) : f.default !== undefined ? String(f.default) : "";
+    out[f.name] = record
+      ? toInputValue(f, record[f.name])
+      : f.default === "today"
+        ? new Date().toISOString().slice(0, 10)
+        : f.default !== undefined
+          ? String(f.default)
+          : "";
   }
   return out;
 }
