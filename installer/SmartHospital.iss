@@ -54,6 +54,7 @@ Source: "{#StageDir}\bin\*.cmd"; DestDir: "{app}\bin"; Components: server; Flags
 Source: "{#StageDir}\bin\configure.mjs"; DestDir: "{app}\bin"; Components: server; Flags: ignoreversion
 Source: "{#StageDir}\runtime\*"; DestDir: "{app}\runtime"; Components: server; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#StageDir}\mongodb\*"; DestDir: "{app}\mongodb"; Components: server; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#StageDir}\mongodb-legacy\*"; DestDir: "{app}\mongodb-legacy"; Components: server; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 Source: "{#StageDir}\app\*"; DestDir: "{app}\app"; Components: server; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#StageDir}\caddy\*"; DestDir: "{app}\caddy"; Components: server; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 

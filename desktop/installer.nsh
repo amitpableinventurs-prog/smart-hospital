@@ -1,6 +1,14 @@
 ; Smart Hospital setup: extra steps around electron-builder's NSIS installer (see scripts/build-windows.mjs).
 ; The server parts live in $INSTDIR\resources\sh; the desktop app sets them up on first run (Server).
 
+; Electron, Node.js and MongoDB need Windows 10 or later (electron-builder itself turns away 32-bit Windows).
+!macro customInit
+  ${IfNot} ${AtLeastWin10}
+    MessageBox MB_OK|MB_ICONSTOP "Smart Hospital needs Windows 10 or Windows 11 (64-bit). This PC has an older version of Windows."
+    Quit
+  ${EndIf}
+!macroend
+
 ; Upgrade or uninstall: stop the server's database and web server so their files can be replaced or removed.
 ; A real uninstall also removes the services; the hospital's data in %ProgramData%\SmartHospital is kept.
 !macro customUnInstall

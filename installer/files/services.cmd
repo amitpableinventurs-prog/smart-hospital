@@ -1,12 +1,17 @@
 @echo off
 rem services.cmd install ^| uninstall ^| stop — run by the setup as administrator.
-rem   Database: Windows service "SmartHospitalDB" (MongoDB on 127.0.0.1 only).
+rem   Database: Windows service "SmartHospitalDB" (MongoDB on 127.0.0.1 only), run by mongodb\ or, on
+rem   PCs without AVX, mongodb-legacy\ (DB_ENGINE in config.env, chosen by configure.mjs).
 rem   Web server (and optional HTTPS proxy): scheduled tasks that start at boot as SYSTEM.
 setlocal
 for %%i in ("%~dp0..") do set "ROOT=%%~fi"
 set "DATA=%ProgramData%\SmartHospital"
 set "PORT=3010"
-for /f "usebackq tokens=1,* delims==" %%a in ("%DATA%\config.env") do if "%%a"=="PORT" set "PORT=%%b"
+set "ENGINE=mongodb"
+for /f "usebackq tokens=1,* delims==" %%a in ("%DATA%\config.env") do (
+  if "%%a"=="PORT" set "PORT=%%b"
+  if "%%a"=="DB_ENGINE" set "ENGINE=%%b"
+)
 
 if /i "%~1"=="install" goto install
 if /i "%~1"=="uninstall" goto uninstall
@@ -23,14 +28,22 @@ exit /b 0
 
 :install
 call :stop
-"%ROOT%\mongodb\mongod.exe" --remove --serviceName SmartHospitalDB > nul 2>&1
-"%ROOT%\mongodb\mongod.exe" --config "%DATA%\mongod.cfg" --install --serviceName SmartHospitalDB --serviceDisplayName "Smart Hospital Database"
+"%ROOT%\%ENGINE%\mongod.exe" --remove --serviceName SmartHospitalDB > nul 2>&1
+"%ROOT%\%ENGINE%\mongod.exe" --config "%DATA%\mongod.cfg" --install --serviceName SmartHospitalDB --serviceDisplayName "Smart Hospital Database"
 sc config SmartHospitalDB start= auto > nul
 net start SmartHospitalDB
+if errorlevel 1 (
+  sc query SmartHospitalDB | findstr /c:"RUNNING" /c:"START_PENDING" > nul || (
+    echo The database did not start. See "%DATA%\logs\mongod.log".
+    exit /b 2
+  )
+)
 schtasks /create /tn "SmartHospital\Server" /tr "\"%ROOT%\bin\start-server.cmd\"" /sc onstart /ru SYSTEM /rl HIGHEST /f > nul
+if exist "%ROOT%\caddy\caddy.exe" schtasks /create /tn "SmartHospital\Proxy" /tr "\"%ROOT%\bin\start-proxy.cmd\"" /sc onstart /ru SYSTEM /rl HIGHEST /f > nul
+rem Windows stops a scheduled task after 3 days, and does not start it on battery, unless told otherwise.
+powershell -NoProfile -NonInteractive -Command "Get-ScheduledTask -TaskPath '\SmartHospital\' | ForEach-Object { $_.Settings.ExecutionTimeLimit = 'PT0S'; $_.Settings.DisallowStartIfOnBatteries = $false; $_.Settings.StopIfGoingOnBatteries = $false; $_ | Set-ScheduledTask } | Out-Null"
 schtasks /run /tn "SmartHospital\Server" > nul
 if exist "%ROOT%\caddy\caddy.exe" (
-  schtasks /create /tn "SmartHospital\Proxy" /tr "\"%ROOT%\bin\start-proxy.cmd\"" /sc onstart /ru SYSTEM /rl HIGHEST /f > nul
   schtasks /run /tn "SmartHospital\Proxy" > nul
   netsh advfirewall firewall delete rule name="Smart Hospital HTTPS" > nul 2>&1
   netsh advfirewall firewall add rule name="Smart Hospital HTTPS" dir=in action=allow protocol=TCP localport=80,443 > nul
@@ -44,7 +57,7 @@ exit /b 0
 call :stop
 schtasks /delete /tn "SmartHospital\Server" /f > nul 2>&1
 schtasks /delete /tn "SmartHospital\Proxy" /f > nul 2>&1
-"%ROOT%\mongodb\mongod.exe" --remove --serviceName SmartHospitalDB > nul 2>&1
+"%ROOT%\%ENGINE%\mongod.exe" --remove --serviceName SmartHospitalDB > nul 2>&1
 netsh advfirewall firewall delete rule name="Smart Hospital" > nul 2>&1
 netsh advfirewall firewall delete rule name="Smart Hospital HTTPS" > nul 2>&1
 rem The hospital's data in %ProgramData%\SmartHospital is kept.

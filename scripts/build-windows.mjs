@@ -10,6 +10,7 @@
  *   --control-url=URL   your Control Panel (APP_MODE=control) — optional; pre-fills the licence server
  *                       on the server setup screen. Leave it out for offline-key-only setups.
  *   --mongo-bin=DIR     MongoDB server binaries to bundle (default: newest under C:\Program Files\MongoDB\Server)
+ *   --mongo-legacy-bin=DIR  MongoDB 4.4 for PCs whose CPU lacks AVX (default: downloaded once into dist/cache)
  *   --skip-build        reuse the last standalone build in .next/standalone
  *   --inno              compile the older Inno Setup installer (installer/SmartHospital.iss) instead
  *
@@ -17,11 +18,16 @@
  * Optional: put caddy.exe in installer/vendor/ to enable automatic HTTPS for clients with a custom domain.
  */
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+/** The last MongoDB that runs without AVX (5.0 and later need it), for older Celeron / Pentium PCs. */
+const LEGACY_MONGO = { version: "4.4.31", sha256: "feffbee31587a7bebd462f53c6267e2a751077dae66b299db6a54807c1950a28" };
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => {
     const [k, ...v] = a.replace(/^--/, "").split("=");
@@ -84,18 +90,15 @@ if (!mongoBin || !fs.existsSync(path.join(mongoBin, "mongod.exe"))) {
   console.error("MongoDB server not found. Install MongoDB Community Server or pass --mongo-bin=DIR (the folder with mongod.exe).");
   process.exit(1);
 }
-fs.mkdirSync(path.join(stage, "mongodb"));
-for (const f of fs.readdirSync(mongoBin)) if (f === "mongod.exe" || f.toLowerCase().endsWith(".dll")) fs.copyFileSync(path.join(mongoBin, f), path.join(stage, "mongodb", f));
-// mongod.exe needs the Visual C++ runtime, which a fresh Windows PC does not have: ship it next to mongod.exe.
 const system32 = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32");
-for (const f of ["msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll", "vcruntime140_1.dll"]) {
-  if (fs.existsSync(path.join(stage, "mongodb", f))) continue;
-  if (!fs.existsSync(path.join(system32, f))) {
-    console.error(`${f} not found in ${system32}. Install the Microsoft Visual C++ Redistributable (x64) on this PC and run again.`);
-    process.exit(1);
-  }
-  fs.copyFileSync(path.join(system32, f), path.join(stage, "mongodb", f));
+stageMongo(mongoBin, path.join(stage, "mongodb"));
+// The server setup (bin/configure.mjs) runs the database on this one when the PC cannot run the other.
+const legacyBin = args["mongo-legacy-bin"] ? String(args["mongo-legacy-bin"]) : await legacyMongoBin();
+if (!fs.existsSync(path.join(legacyBin, "mongod.exe"))) {
+  console.error(`MongoDB ${LEGACY_MONGO.version} not found in ${legacyBin}.`);
+  process.exit(1);
 }
+stageMongo(legacyBin, path.join(stage, "mongodb-legacy"));
 
 const caddy = path.join(root, "installer", "vendor", "caddy.exe");
 if (fs.existsSync(caddy)) {
@@ -104,8 +107,13 @@ if (fs.existsSync(caddy)) {
 }
 
 copy(path.join(root, "installer", "files"), path.join(stage, "bin"));
+// cmd.exe can miss labels (goto, call :x) in batch files with Unix line endings, as a checkout may leave them.
+for (const f of fs.readdirSync(path.join(stage, "bin")).filter((f) => /\.(cmd|vbs)$/i.test(f))) {
+  const file = path.join(stage, "bin", f);
+  fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace(/\r?\n/g, "\r\n"));
+}
 fs.copyFileSync(path.join(root, "src", "app", "favicon.ico"), path.join(stage, "bin", "app.ico"));
-console.log(`  app ${pkg.version}, Node ${process.version}, MongoDB from ${mongoBin}${fs.existsSync(caddy) ? ", Caddy (HTTPS)" : ""}`);
+console.log(`  app ${pkg.version}, Node ${process.version}, MongoDB from ${mongoBin} (and ${LEGACY_MONGO.version} for PCs without AVX)${fs.existsSync(caddy) ? ", Caddy (HTTPS)" : ""}`);
 
 // 3. Compile the setup. The previous one goes first, so a failed build cannot leave it behind looking like the new one.
 fs.rmSync(path.join(dist, `SmartHospital-Setup-${pkg.version}.exe`), { force: true });
@@ -163,4 +171,49 @@ function newestMongoBin() {
   if (!fs.existsSync(base)) return null;
   const versions = fs.readdirSync(base).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
   return versions.length ? path.join(base, versions[0], "bin") : null;
+}
+
+/** mongod.exe into `dir`, with the Visual C++ runtime it needs, which a fresh Windows PC does not have. */
+function stageMongo(bin, dir) {
+  fs.mkdirSync(dir);
+  for (const f of fs.readdirSync(bin)) if (f === "mongod.exe" || f.toLowerCase().endsWith(".dll")) fs.copyFileSync(path.join(bin, f), path.join(dir, f));
+  for (const f of ["msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll", "vcruntime140_1.dll"]) {
+    if (fs.existsSync(path.join(dir, f))) continue;
+    if (!fs.existsSync(path.join(system32, f))) {
+      console.error(`${f} not found in ${system32}. Install the Microsoft Visual C++ Redistributable (x64) on this PC and run again.`);
+      process.exit(1);
+    }
+    fs.copyFileSync(path.join(system32, f), path.join(dir, f));
+  }
+}
+
+/** MongoDB LEGACY_MONGO's mongod.exe, downloaded and checked once, then kept in dist/cache. */
+async function legacyMongoBin() {
+  const dir = path.join(dist, "cache", `mongodb-${LEGACY_MONGO.version}`);
+  if (fs.existsSync(path.join(dir, "mongod.exe"))) return dir;
+  const name = `mongodb-windows-x86_64-${LEGACY_MONGO.version}.zip`;
+  const zip = path.join(path.dirname(dir), name);
+  fs.mkdirSync(dir, { recursive: true });
+  console.log(`  downloading MongoDB ${LEGACY_MONGO.version} (~280 MB, once) for PCs without AVX…`);
+  const res = await fetch(`https://fastdl.mongodb.org/windows/${name}`);
+  if (!res.ok || !res.body) {
+    console.error(`Could not download ${name} (HTTP ${res.status}). Download it yourself and pass --mongo-legacy-bin=DIR (the folder with its mongod.exe).`);
+    process.exit(1);
+  }
+  await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(zip));
+  const hash = createHash("sha256");
+  await pipeline(fs.createReadStream(zip), hash);
+  if (hash.digest("hex") !== LEGACY_MONGO.sha256) {
+    fs.rmSync(zip, { force: true });
+    console.error(`${name} failed its checksum; run again to download it afresh.`);
+    process.exit(1);
+  }
+  // Windows' own tar.exe reads zip files (Git's tar does not).
+  const r = spawnSync(path.join(system32, "tar.exe"), ["-xf", zip, "-C", dir, "--strip-components=2", "*/bin/mongod.exe"], { stdio: "inherit" });
+  fs.rmSync(zip, { force: true });
+  if (r.status !== 0 || !fs.existsSync(path.join(dir, "mongod.exe"))) {
+    console.error(`Could not unpack mongod.exe from ${name}.`);
+    process.exit(1);
+  }
+  return dir;
 }
