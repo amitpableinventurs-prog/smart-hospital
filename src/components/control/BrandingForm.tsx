@@ -4,28 +4,11 @@ import { Hospital, ImagePlus, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { Alert, Button, Field, Modal, errorRing, inputClass, omitKey } from "../ui";
 import { ApiClientError } from "@/lib/client";
+import { resizeLogo } from "@/lib/resize-logo";
 import type { Branding } from "@/lib/licence-protocol";
 
 const EMPTY: Branding = { appName: null, tagline: null, address: null, phone: null, email: null, website: null, gstin: null, color: null, logo: null, printFooter: null };
 const MAX_LOGO = 150_000;
-
-/** Downscale a logo to at most 256 px; PNG keeps transparency, JPEG when PNG would be too large. */
-async function resizeLogo(file: File): Promise<string> {
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, 256 / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-  canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-  const png = canvas.toDataURL("image/png");
-  if (png.length <= MAX_LOGO) return png;
-  const ctx = canvas.getContext("2d")!;
-  ctx.globalCompositeOperation = "destination-over";
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/jpeg", 0.85);
-}
 
 /** The client's app name, logo, colour and letterhead — sent to their installation at its next check-in. */
 export function BrandingForm({ name, branding, onSubmit, onClose }: { name: string; branding: Branding | null; onSubmit: (b: Branding | null) => Promise<void>; onClose: () => void }) {
@@ -43,7 +26,7 @@ export function BrandingForm({ name, branding, onSubmit, onClose }: { name: stri
     if (!file) return;
     if (!/^image\/(jpeg|png|webp)$/.test(file.type)) return setErrors((x) => ({ ...x, "branding.logo": "Choose a PNG, JPEG or WebP image" }));
     try {
-      const logo = await resizeLogo(file);
+      const logo = await resizeLogo(file, 256, MAX_LOGO);
       if (logo.length > MAX_LOGO) return setErrors((x) => ({ ...x, "branding.logo": "This image is too large even after resizing" }));
       setV((s) => ({ ...s, logo }));
       setErrors((x) => omitKey(x, "branding.logo"));

@@ -218,3 +218,28 @@ const DayCloseSchema = new Schema(
 );
 
 export const DayClose: Model<InferSchemaType<typeof DayCloseSchema>> = mongoose.models.BillingDayClose ?? mongoose.model("BillingDayClose", DayCloseSchema);
+
+/* ---------- Bill print template ---------- */
+
+/** The hospital's bill print settings: one document ("bill"); see lib/bill-print.ts for the fields. */
+const PrintSettingsSchema = new Schema(
+  {
+    _id: { type: String, default: "bill" },
+    template: String,
+    accent: String,
+    logo: String,
+    customLogo: String,
+    logoSize: String,
+    headerNote: String,
+    terms: String,
+    footer: String,
+    signatureLabel: String,
+    showReceipts: Boolean,
+    showStamp: Boolean,
+    paper: String,
+    updatedByName: String,
+  },
+  { collection: "billing_print_settings", timestamps: true }
+);
+
+export const BillPrintSettingsModel: Model<InferSchemaType<typeof PrintSettingsSchema>> = mongoose.models.BillPrintSettings ?? mongoose.model("BillPrintSettings", PrintSettingsSchema);

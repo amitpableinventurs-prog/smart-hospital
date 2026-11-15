@@ -1010,7 +1010,7 @@ export const MODULES: ModuleDef[] = [
       { name: "billing_bills", label: "Bills" },
       { name: "billing_shifts", label: "Cashier shifts" },
     ],
-    groups: ["Billing", "Cash & Collections", "Reports", "Masters"],
+    groups: ["Billing", "Cash & Collections", "Reports", "Masters", "Settings"],
     sections: [
       { key: "bills", label: "All Bills", group: "Billing" },
       { key: "ipd", label: "IPD & Discharge", group: "Billing" },
@@ -1023,6 +1023,7 @@ export const MODULES: ModuleDef[] = [
       { key: "closing", label: "Daily Cash Closing", group: "Cash & Collections" },
       { key: "reports", label: "Billing Reports", group: "Reports" },
       { key: "doctor_fees", label: "Doctor Fees", group: "Reports" },
+      { key: "print_settings", label: "Bill Print Templates", group: "Settings" },
     ],
     resources: [
       {

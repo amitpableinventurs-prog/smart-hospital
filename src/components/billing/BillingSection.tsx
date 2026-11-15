@@ -10,11 +10,12 @@ import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { BILL_PAYMENT_MODES, BILL_TYPES } from "@/lib/modules";
 import { useApiQuery } from "@/lib/useApi";
 import { FormModal, numOrUndefined } from "../FormModal";
+import { PrintSettings } from "./PrintSettings";
 import { TableCard } from "../TableCard";
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, ErrorState, Kbd, Pagination, Spinner, StatCard, cx, inputClass, useDebounced, useHotkeys, useToast } from "../ui";
 import { billTone, payTone, type BillRow, type Shift, type ShiftTotals } from "./types";
 
-/** Bespoke billing tabs: bills, IPD board, dues, cash counter, receipts, reconciliation, closing and reports. */
+/** Bespoke billing tabs: bills, IPD board, dues, cash counter, receipts, reconciliation, closing, reports and print templates. */
 export function BillingSection({ section }: { section: string }) {
   switch (section) {
     case "ipd":
@@ -37,6 +38,8 @@ export function BillingSection({ section }: { section: string }) {
       return <BillingReports />;
     case "doctor_fees":
       return <DoctorFees />;
+    case "print_settings":
+      return <PrintSettings />;
     default:
       return <BillRegister />;
   }

@@ -1,3 +1,4 @@
+import type { PrintHospital } from "@/lib/bill-print";
 import { statusTone } from "../ui";
 
 /** Shapes returned by /api/billing/* (see lib/billing.ts). */
@@ -130,7 +131,7 @@ export interface Bill {
   createdByName?: string;
   createdAt: string;
   deptDues: DeptDue[];
-  hospital: { name: string; address: string; phone: string; gstin: string };
+  hospital: PrintHospital;
   stayDays: number | null;
 }
 

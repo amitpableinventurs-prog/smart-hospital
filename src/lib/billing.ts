@@ -95,6 +95,8 @@ export function hospitalInfo() {
     address: orgInfo().address,
     phone: orgInfo().phone,
     gstin: orgInfo().gstin,
+    email: orgInfo().email,
+    website: orgInfo().website,
     logo: orgInfo().logo,
     footer: orgInfo().footer,
   };
