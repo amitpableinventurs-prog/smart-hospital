@@ -27,10 +27,10 @@ export function ReportsView({ initialTab }: { initialTab: ReportKey }) {
     <>
       <div className="print:hidden">
         <PageHeader title="Reports" description="Pharmacy, lab, billing and stock reports. Alt+1…5 switches report, Ctrl+P prints." />
-        <div className="mb-4 flex gap-1 overflow-x-auto border-b border-slate-200" role="tablist">
+        <div className="mb-5 flex w-fit max-w-full gap-1 overflow-x-auto rounded-2xl bg-slate-200/50 p-1 ring-1 ring-inset ring-slate-200/80" role="tablist">
           {REPORT_TABS.map((t, i) => (
             <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => select(t.key)}
-              className={cx("-mb-px whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium", tab === t.key ? "border-brand-600 text-brand-700" : "border-transparent text-slate-500 hover:text-slate-800")}>
+              className={cx("whitespace-nowrap rounded-xl px-4 py-2 text-sm font-medium transition-all duration-150", tab === t.key ? "bg-white text-brand-700 shadow-sm ring-1 ring-slate-900/5" : "text-slate-500 hover:bg-white/60 hover:text-slate-800")}>
               {t.label} <Kbd className="ml-1">Alt+{i + 1}</Kbd>
             </button>
           ))}

@@ -3,8 +3,8 @@ import Link from "next/link";
 
 export function AccessDenied({ moduleLabel }: { moduleLabel?: string }) {
   return (
-    <div className="mx-auto mt-16 max-w-md rounded-xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-      <div className="mx-auto w-fit rounded-full bg-amber-50 p-3">
+    <div className="mx-auto mt-16 max-w-md rounded-2xl border border-slate-200/80 bg-white p-8 text-center shadow-card">
+      <div className="mx-auto w-fit rounded-2xl bg-amber-50 p-4 ring-1 ring-inset ring-amber-100">
         <ShieldAlert className="size-6 text-amber-600" aria-hidden />
       </div>
       <h1 className="mt-4 text-lg font-semibold text-slate-900">Access restricted</h1>

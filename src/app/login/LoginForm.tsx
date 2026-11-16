@@ -38,17 +38,17 @@ export function LoginForm({ next }: { next?: string }) {
         <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
         <div className="relative">
           <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden />
-          <input id="email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} className={`${inputClass} pl-9`} placeholder="you@hospital.com" />
+          <input id="email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} className={`${inputClass} py-2.5 pl-9`} placeholder="you@hospital.com" />
         </div>
       </div>
       <div>
         <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-slate-700">Password</label>
         <div className="relative">
           <Lock className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden />
-          <input id="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={`${inputClass} pl-9`} />
+          <input id="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={`${inputClass} py-2.5 pl-9`} placeholder="••••••••" />
         </div>
       </div>
-      <Button type="submit" loading={loading} className="w-full py-2.5">
+      <Button type="submit" loading={loading} className="w-full py-2.5 shadow-md shadow-brand-600/25">
         {loading ? "Signing in…" : "Sign in"}
       </Button>
     </form>

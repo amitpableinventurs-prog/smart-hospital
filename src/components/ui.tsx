@@ -19,10 +19,10 @@ export function cx(...c: (string | false | null | undefined)[]) {
 
 type Variant = "primary" | "secondary" | "danger" | "ghost";
 const variants: Record<Variant, string> = {
-  primary: "bg-brand-600 text-white hover:bg-brand-700 shadow-sm",
-  secondary: "bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50",
-  danger: "bg-red-600 text-white hover:bg-red-700 shadow-sm",
-  ghost: "text-slate-600 hover:bg-slate-100",
+  primary: "bg-linear-to-b from-brand-500 to-brand-600 text-white shadow-sm shadow-brand-900/20 ring-1 ring-inset ring-white/10 hover:from-brand-600 hover:to-brand-700",
+  secondary: "bg-white text-slate-700 shadow-xs ring-1 ring-inset ring-slate-200 hover:bg-slate-50 hover:ring-slate-300",
+  danger: "bg-linear-to-b from-red-500 to-red-600 text-white shadow-sm shadow-red-900/20 hover:from-red-600 hover:to-red-700",
+  ghost: "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
 };
 
 export function Button({
@@ -38,7 +38,7 @@ export function Button({
       {...props}
       disabled={disabled || loading}
       className={cx(
-        "inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors",
+        "inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition-all duration-150 active:scale-[0.98]",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed disabled:opacity-60",
         variants[variant],
         className
@@ -55,9 +55,9 @@ export function Button({
 export function PageHeader({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) {
   return (
     <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
-        {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
+      <div className="min-w-0">
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-[1.65rem]">{title}</h1>
+        {description && <p className="mt-1 max-w-3xl text-sm text-slate-500">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
     </div>
@@ -65,12 +65,12 @@ export function PageHeader({ title, description, actions }: { title: string; des
 }
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cx("rounded-xl border border-slate-200 bg-white shadow-sm", className)}>{children}</div>;
+  return <div className={cx("rounded-2xl border border-slate-200/80 bg-white shadow-card print:shadow-none", className)}>{children}</div>;
 }
 
 export function CardHeader({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+    <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4 [&_h2]:tracking-tight">
       <div>
         <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
         {description && <p className="mt-0.5 text-xs text-slate-500">{description}</p>}
@@ -81,16 +81,23 @@ export function CardHeader({ title, description, actions }: { title: string; des
 }
 
 export function StatCard({ label, value, hint, icon, tone = "brand" }: { label: string; value: ReactNode; hint?: string; icon?: ReactNode; tone?: "brand" | "amber" | "red" | "slate" }) {
-  const tones = { brand: "bg-brand-50 text-brand-700", amber: "bg-amber-50 text-amber-700", red: "bg-red-50 text-red-700", slate: "bg-slate-100 text-slate-700" };
+  const tones = {
+    brand: "from-brand-400 to-brand-600 shadow-brand-600/25",
+    amber: "from-amber-400 to-orange-500 shadow-amber-500/25",
+    red: "from-rose-400 to-red-600 shadow-red-600/25",
+    slate: "from-slate-400 to-slate-600 shadow-slate-600/25",
+  };
+  const glows = { brand: "bg-brand-400/15", amber: "bg-amber-400/15", red: "bg-red-400/15", slate: "bg-slate-400/15" };
   return (
-    <Card className="p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+    <Card className="relative overflow-hidden p-5">
+      <div className={cx("pointer-events-none absolute -right-8 -top-10 size-32 rounded-full blur-2xl print:hidden", glows[tone])} aria-hidden />
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="min-w-0">
           <p className="text-sm font-medium text-slate-500">{label}</p>
           <p className="mt-2 text-3xl font-semibold tabular-nums tracking-tight text-slate-900">{value}</p>
           {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
         </div>
-        {icon && <div className={cx("rounded-lg p-2.5", tones[tone])}>{icon}</div>}
+        {icon && <div className={cx("rounded-xl bg-linear-to-br p-2.5 text-white shadow-lg [&_svg]:text-white", tones[tone])}>{icon}</div>}
       </div>
     </Card>
   );
@@ -106,7 +113,12 @@ const badgeTones: Record<string, string> = {
 };
 
 export function Badge({ tone = "slate", children }: { tone?: keyof typeof badgeTones; children: ReactNode }) {
-  return <span className={cx("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset whitespace-nowrap", badgeTones[tone])}>{children}</span>;
+  return (
+    <span className={cx("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset whitespace-nowrap [&:has(>svg)>.badge-dot]:hidden", badgeTones[tone])}>
+      <span className="badge-dot size-1.5 shrink-0 rounded-full bg-current opacity-70 print:hidden" aria-hidden />
+      {children}
+    </span>
+  );
 }
 
 /** Map common status words to a badge tone. */
@@ -124,7 +136,7 @@ export function statusTone(value: string): keyof typeof badgeTones {
 /* ---------- Form controls ---------- */
 
 export const inputClass =
-  "block w-full rounded-lg border-0 bg-white px-3 py-2 text-sm text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-brand-500 disabled:bg-slate-50 disabled:text-slate-500";
+  "block w-full rounded-xl border-0 bg-white px-3 py-2 text-sm text-slate-900 shadow-xs ring-1 ring-inset ring-slate-200 outline-none transition-shadow placeholder:text-slate-400 hover:ring-slate-300 focus:ring-2 focus:ring-inset focus:ring-brand-500 focus:shadow-[0_0_0_4px_color-mix(in_oklab,var(--color-brand-500)_15%,transparent)] disabled:bg-slate-50 disabled:text-slate-500";
 
 export function Field({ label, htmlFor, required, error, hint, className, children }: { label: string; htmlFor: string; required?: boolean; error?: string; hint?: string; className?: string; children: ReactNode }) {
   return (
@@ -161,8 +173,8 @@ export function Spinner({ label = "Loading…" }: { label?: string }) {
 export function EmptyState({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return (
     <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-      <div className="rounded-full bg-slate-100 p-3">
-        <Inbox className="size-6 text-slate-400" aria-hidden />
+      <div className="rounded-2xl bg-linear-to-br from-brand-50 to-slate-100 p-4 ring-1 ring-inset ring-slate-200/70">
+        <Inbox className="size-6 text-brand-500" aria-hidden />
       </div>
       <p className="mt-3 text-sm font-medium text-slate-900">{title}</p>
       {description && <p className="mt-1 max-w-sm text-sm text-slate-500">{description}</p>}
@@ -174,7 +186,7 @@ export function EmptyState({ title, description, action }: { title: string; desc
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center px-6 py-14 text-center" role="alert">
-      <div className="rounded-full bg-red-50 p-3">
+      <div className="rounded-2xl bg-red-50 p-4 ring-1 ring-inset ring-red-100">
         <TriangleAlert className="size-6 text-red-500" aria-hidden />
       </div>
       <p className="mt-3 text-sm font-medium text-slate-900">Couldn&apos;t load data</p>
@@ -190,7 +202,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
 
 export function Alert({ tone = "red", children }: { tone?: "red" | "amber" | "green"; children: ReactNode }) {
   const t = { red: "bg-red-50 text-red-800 ring-red-200", amber: "bg-amber-50 text-amber-900 ring-amber-200", green: "bg-emerald-50 text-emerald-800 ring-emerald-200" };
-  return <div className={cx("rounded-lg px-4 py-3 text-sm ring-1 ring-inset", t[tone])} role={tone === "red" ? "alert" : "status"}>{children}</div>;
+  return <div className={cx("rounded-xl px-4 py-3 text-sm ring-1 ring-inset", t[tone])} role={tone === "red" ? "alert" : "status"}>{children}</div>;
 }
 
 /* ---------- Pagination ---------- */
@@ -241,19 +253,19 @@ export function Modal({ open, onClose, title, description, children, footer, siz
   const widths = { md: "max-w-md", lg: "max-w-2xl", xl: "max-w-4xl" };
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[1px]" onClick={onClose} aria-hidden />
-      <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className={cx("relative flex max-h-[92vh] w-full flex-col rounded-t-2xl bg-white shadow-xl sm:rounded-2xl", widths[size])}>
+      <div className="absolute inset-0 animate-fade-in bg-slate-950/45 backdrop-blur-sm" onClick={onClose} aria-hidden />
+      <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className={cx("relative flex max-h-[92vh] w-full animate-pop-in flex-col rounded-t-3xl bg-white shadow-pop ring-1 ring-slate-900/5 sm:rounded-2xl", widths[size])}>
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-4">
           <div>
-            <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-900">{title}</h2>
             {description && <p className="mt-0.5 text-sm text-slate-500">{description}</p>}
           </div>
-          <button onClick={onClose} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600" aria-label="Close">
+          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Close">
             <X className="size-5" />
           </button>
         </div>
         <div className="overflow-y-auto px-6 py-5">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4">{footer}</div>}
+        {footer && <div className="flex justify-end gap-2 rounded-b-2xl border-t border-slate-100 bg-slate-50/70 px-6 py-4">{footer}</div>}
       </div>
     </div>
   );
@@ -306,7 +318,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2" aria-live="polite">
         {toasts.map((t) => (
-          <div key={t.id} className={cx("pointer-events-auto flex items-start gap-2 rounded-lg px-4 py-3 text-sm shadow-lg ring-1", t.tone === "success" ? "bg-white text-slate-800 ring-slate-200" : "bg-red-600 text-white ring-red-700")}>
+          <div key={t.id} className={cx("pointer-events-auto flex animate-pop-in items-start gap-2.5 rounded-xl px-4 py-3 text-sm shadow-pop ring-1", t.tone === "success" ? "bg-white/95 text-slate-800 ring-slate-200 backdrop-blur" : "bg-red-600 text-white ring-red-700")}>
             {t.tone === "success" ? <CircleCheck className="mt-0.5 size-4 shrink-0 text-emerald-600" /> : <TriangleAlert className="mt-0.5 size-4 shrink-0" />}
             <span>{t.message}</span>
           </div>
