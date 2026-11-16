@@ -1651,7 +1651,7 @@ export const MODULES: ModuleDef[] = [
           { name: "age", label: "Age", type: "number", min: 0, max: 120 },
           { name: "area", label: "Area / city", type: "text", maxLength: 80, search: true },
           { name: "enquiryDate", label: "Enquiry date", type: "date", required: true, past: true, list: true },
-          { name: "interestedIn", label: "Interested in", type: "select", options: [...DEPARTMENTS, "Health check-up", "Surgery / procedure", "Diagnostics", "Other"], required: true, list: true },
+          { name: "interestedIn", label: "Interested in", type: "select", options: [...DEPARTMENTS.filter((d) => d !== "Other"), "Health check-up", "Surgery / procedure", "Diagnostics", "Other"], required: true, list: true },
           { name: "requirement", label: "Requirement", type: "textarea", maxLength: 500, wide: true, search: true, placeholder: "e.g. Knee replacement cost, cardiology consultation for father" },
 
           { name: "source", label: "Source", type: "select", options: LEAD_SOURCES, required: true, list: true, section: "Source" },
@@ -1696,7 +1696,7 @@ export const MODULES: ModuleDef[] = [
         fields: [
           { name: "name", label: "Campaign name", type: "text", required: true, maxLength: 120, list: true, search: true, placeholder: "e.g. Free cardiac check-up week" },
           { name: "channel", label: "Channel", type: "select", options: CAMPAIGN_CHANNELS, required: true, list: true },
-          { name: "focus", label: "Speciality / service", type: "select", options: [...DEPARTMENTS, "Health check-up", "Hospital brand", "Other"] },
+          { name: "focus", label: "Speciality / service", type: "select", options: [...DEPARTMENTS.filter((d) => d !== "Other"), "Health check-up", "Hospital brand", "Other"] },
           { name: "startDate", label: "Starts", type: "date", required: true, list: true },
           { name: "endDate", label: "Ends", type: "date", list: true },
           { name: "budget", label: "Budget (₹)", type: "number", min: 0 },

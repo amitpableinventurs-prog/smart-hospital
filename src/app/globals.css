@@ -59,10 +59,13 @@ body {
   background: color-mix(in oklab, var(--color-brand-500) 22%, transparent);
 }
 
-/* Thin, unobtrusive scrollbars for the sidebar and tables */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
+/* Thin, unobtrusive scrollbars for the sidebar and tables. In the base layer so utilities
+   such as [scrollbar-width:none] on the module strip and tab rows can still override it. */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

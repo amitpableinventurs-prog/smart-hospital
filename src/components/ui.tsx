@@ -236,18 +236,25 @@ export function Pagination({ pagination, onPage }: { pagination?: Paged; onPage:
 
 export function Modal({ open, onClose, title, description, children, footer, size = "lg" }: { open: boolean; onClose: () => void; title: string; description?: string; children: ReactNode; footer?: ReactNode; size?: "md" | "lg" | "xl" }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Callers pass inline handlers; keep the latest in a ref so a parent re-render (e.g. a board
+  // refreshing every 30 s) does not re-run the effect and steal focus from an open dropdown.
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  });
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeRef.current();
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    ref.current?.querySelector<HTMLElement>("input,select,textarea,button")?.focus();
+    const body = ref.current?.querySelector<HTMLElement>("[data-modal-body]");
+    (body?.querySelector<HTMLElement>("input:not([type=hidden]),select,textarea") ?? ref.current?.querySelector<HTMLElement>("input,select,textarea,button"))?.focus();
     return () => {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   const widths = { md: "max-w-md", lg: "max-w-2xl", xl: "max-w-4xl" };
@@ -264,7 +271,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
             <X className="size-5" />
           </button>
         </div>
-        <div className="overflow-y-auto px-6 py-5">{children}</div>
+        <div data-modal-body className="overflow-y-auto px-6 py-5">{children}</div>
         {footer && <div className="flex justify-end gap-2 rounded-b-2xl border-t border-slate-100 bg-slate-50/70 px-6 py-4">{footer}</div>}
       </div>
     </div>

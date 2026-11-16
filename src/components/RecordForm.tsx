@@ -289,27 +289,53 @@ export function RefSelect({ id, field, value, onChange, initial, disabled, class
   const target = useMemo(() => resolveRef(field.ref!), [field.ref]);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [options, setOptions] = useState<RefOption[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [failed, setFailed] = useState<string | null>(null);
+  // Results are keyed by the search they answer, so "loading" is derived and the list never
+  // flashes "No matches" during the debounce before the first request has even started.
+  const [result, setResult] = useState<{ q: string; options: RefOption[]; error: string | null } | null>(null);
+  const loading = open && !!target && result?.q !== query;
+  const options = result?.options ?? [];
+  const failed = loading ? null : (result?.error ?? null);
   const [picked, setSelected] = useState<RefOption | undefined>(initial);
   const selected = value && picked?.id === value ? picked : undefined;
   const wrap = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const [up, setUp] = useState(false);
+
+  // Open upwards when the space below (inside a scrolling modal or the window) is too short,
+  // otherwise the list is clipped by the modal body and looks like nothing happened.
+  function toggle() {
+    if (!open && wrap.current) {
+      const r = wrap.current.getBoundingClientRect();
+      let top = 0;
+      let bottom = window.innerHeight;
+      for (let el = wrap.current.parentElement; el; el = el.parentElement) {
+        const o = getComputedStyle(el).overflowY;
+        if (o === "auto" || o === "scroll" || o === "hidden") {
+          const b = el.getBoundingClientRect();
+          top = Math.max(top, b.top);
+          bottom = Math.min(bottom, b.bottom);
+          break;
+        }
+      }
+      const below = bottom - r.bottom;
+      setUp(below < 300 && r.top - top > below);
+    }
+    setOpen((o) => !o);
+  }
+  useEffect(() => {
+    if (open) panel.current?.scrollIntoView({ block: "nearest" });
+  }, [open]);
 
   useEffect(() => {
     if (!open || !target) return;
     const ctrl = new AbortController();
     const t = setTimeout(async () => {
-      setLoading(true);
-      setFailed(null);
       try {
         const narrow = Object.entries(field.refFilter ?? {}).map(([k, v]) => `&f.${k}=${encodeURIComponent(v)}`).join("");
         const { data } = await api<RefOption[]>(`/api/lookup/${target.module.key}/${target.resource.key}?q=${encodeURIComponent(query)}${narrow}`, { signal: ctrl.signal });
-        setOptions(data);
+        setResult({ q: query, options: data, error: null });
       } catch (e) {
-        if ((e as Error).name !== "AbortError") setFailed((e as Error).message);
-      } finally {
-        setLoading(false);
+        if ((e as Error).name !== "AbortError") setResult({ q: query, options: [], error: (e as Error).message });
       }
     }, 250);
     return () => {
@@ -328,7 +354,7 @@ export function RefSelect({ id, field, value, onChange, initial, disabled, class
 
   return (
     <div ref={wrap} className="relative">
-      <button id={id} type="button" disabled={disabled} onClick={() => setOpen((o) => !o)} className={cx(className, "flex items-center justify-between text-left")} aria-haspopup="listbox" aria-expanded={open}>
+      <button id={id} type="button" disabled={disabled} onClick={toggle} className={cx(className, "flex items-center justify-between text-left")} aria-haspopup="listbox" aria-expanded={open}>
         <span className={cx("truncate", !display && "text-slate-400")}>{display || `Select ${field.label.toLowerCase()}…`}</span>
         <span className="ml-2 flex items-center gap-1">
           {value && !disabled && !field.required && (
@@ -347,7 +373,7 @@ export function RefSelect({ id, field, value, onChange, initial, disabled, class
         </span>
       </button>
       {open && (
-        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-slate-200">
+        <div ref={panel} className={cx("absolute z-30 w-full overflow-hidden rounded-xl bg-white shadow-pop ring-1 ring-slate-200", up ? "bottom-full mb-1" : "mt-1")}>
           <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
             <Search className="size-4 text-slate-400" aria-hidden />
             <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${target?.resource.label.toLowerCase() ?? ""}…`} className="w-full border-0 p-0 text-sm focus:ring-0 focus:outline-none" />
@@ -355,6 +381,7 @@ export function RefSelect({ id, field, value, onChange, initial, disabled, class
           </div>
           <ul role="listbox" className="max-h-60 overflow-y-auto py-1 text-sm">
             {failed && <li className="px-3 py-2 text-red-600">{failed}</li>}
+            {loading && options.length === 0 && <li className="px-3 py-2 text-slate-500">Searching…</li>}
             {!failed && !loading && options.length === 0 && <li className="px-3 py-2 text-slate-500">No matches. Records must be created in {target?.module.label} first.</li>}
             {options.map((o) => (
               <li

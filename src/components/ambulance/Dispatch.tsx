@@ -93,14 +93,32 @@ export function DispatchFields({ board, value, onChange, errors = {}, tripType }
     set({ vehicle: id, odometerStart: v ? String(v.odometer) : "", driver: value.driver || regular?.id || "" });
   }
   const label = (s: BoardStaff) => `${s.name} (${s.code})${s.onLeave ? " — on leave" : s.onTrip ? ` — on ${s.onTrip}` : ""}`;
+  const usable = (v: BoardVehicle) => v.status === "Available" && !v.blocked.length;
+  const freeVehicles = vehicles.filter(usable).length;
+  const freeDrivers = drivers.filter(free).length;
+  const kind = deadBody ? "mortuary van" : "ambulance";
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
-      <Field label="Ambulance" htmlFor="d-vehicle" required error={errors.vehicle}>
+      {(!freeVehicles || !freeDrivers) && (
+        <div className="sm:col-span-2">
+          <Alert tone="amber">
+            {!freeVehicles && (
+              <p>
+                {vehicles.length ? `No ${kind} is free right now: ` : `No ${kind} is registered. Add one in Ambulance → Vehicles.`}
+                {vehicles.map((v) => `${v.vehicleNumber} ${v.blocked.length ? `(${v.blocked.join(", ")} expired)` : v.trip ? `(on ${v.trip.code})` : `(${v.status.toLowerCase()})`}`).join(", ")}
+              </p>
+            )}
+            {!freeDrivers && <p>{drivers.length ? "Every driver is on a trip or on leave." : "No staff in the Driver category. Add drivers in HR → Employees."}</p>}
+            <p className="mt-1 text-xs opacity-80">Complete or cancel a running trip, renew the expired document or end the maintenance, then try again. Busy entries are greyed out in the list.</p>
+          </Alert>
+        </div>
+      )}
+      <Field label="Ambulance" htmlFor="d-vehicle" required error={errors.vehicle} hint={vehicles.length ? `${freeVehicles} of ${vehicles.length} free` : undefined}>
         <select id="d-vehicle" value={value.vehicle} onChange={(e) => pickVehicle(e.target.value)} className={inputClass}>
           <option value="">Select…</option>
           {vehicles.map((v) => {
-            const ok = v.status === "Available" && !v.blocked.length;
+            const ok = usable(v);
             return <option key={v.id} value={v.id} disabled={!ok}>{v.vehicleNumber} · {v.type}{!ok ? ` — ${v.blocked.length ? `${v.blocked.join(", ")} expired` : v.trip ? `on ${v.trip.code}` : v.status.toLowerCase()}` : v.baseLocation ? ` · ${v.baseLocation}` : ""}</option>;
           })}
         </select>
@@ -108,7 +126,7 @@ export function DispatchFields({ board, value, onChange, errors = {}, tripType }
       <Field label="Odometer at start (km)" htmlFor="d-odo" error={errors.odometerStart}>
         <input id="d-odo" type="number" min={0} value={value.odometerStart} onChange={(e) => set({ odometerStart: e.target.value })} className={inputClass} />
       </Field>
-      <Field label="Driver" htmlFor="d-driver" required error={errors.driver} className="sm:col-span-2" hint={drivers.length ? undefined : "No staff in the Driver category. Add drivers in HR → Employees."}>
+      <Field label="Driver" htmlFor="d-driver" required error={errors.driver} className="sm:col-span-2" hint={drivers.length ? `${freeDrivers} of ${drivers.length} free` : undefined}>
         <select id="d-driver" value={value.driver} onChange={(e) => set({ driver: e.target.value })} className={inputClass}>
           <option value="">Select…</option>
           {drivers.map((s) => <option key={s.id} value={s.id} disabled={!free(s)}>{label(s)}</option>)}
