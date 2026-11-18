@@ -5,7 +5,7 @@ import { connectDB } from "./db";
 import { ApiError } from "./api";
 import { SESSION_COOKIE, verifySession } from "./auth";
 import { licenceView } from "./licence";
-import { MODULE_KEYS, type ModuleKey, type Role } from "./modules";
+import { MODULE_KEYS, isModuleKey, type ModuleKey, type Role } from "./modules";
 import { User } from "@/models/User";
 
 export interface SessionUser {
@@ -40,12 +40,18 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
 
   // On a client installation only the modules licensed by the Control Panel exist.
   const licensed = (await licenceView()).modules ?? [...MODULE_KEYS];
+  const assigned: unknown[] = user.role === "super_admin" ? licensed : user.modules;
+  const validAssigned = assigned.filter(isModuleKey);
+  if (validAssigned.length !== assigned.length) {
+    console.error("Ignoring unknown module keys on account", String(user._id));
+  }
+  const validLicensed = licensed.filter(isModuleKey);
   return {
     id: String(user._id),
     name: user.name,
     email: user.email,
     role: user.role,
-    modules: user.role === "super_admin" ? licensed : (user.modules as ModuleKey[]).filter((m) => licensed.includes(m)),
+    modules: validAssigned.filter((m) => validLicensed.includes(m)),
   };
 });
 
